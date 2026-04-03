@@ -1,13 +1,10 @@
 import 'package:dharma_guide/constants/app_data.dart';
 import 'package:flutter/material.dart';
-import '../theme.dart';
+import '../constants/theme.dart';
 import '../../models/models.dart';
-import '../../services/ai_service.dart';
 import '../state/app_state.dart';
 import '../../shared_widgets.dart';
 import '../ai_service.dart';
-import '../models/models.dart';
-import '../theme.dart';
 
 class ReflectionScreen extends StatefulWidget {
   final AppState state;

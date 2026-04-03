@@ -1,6 +1,6 @@
 import 'package:dharma_guide/constants/app_data.dart';
 import 'package:dharma_guide/state/app_state.dart';
-import 'package:dharma_guide/theme.dart';
+import 'package:dharma_guide/constants/theme.dart';
 import 'package:flutter/material.dart';
 import '../../shared_widgets.dart';
 

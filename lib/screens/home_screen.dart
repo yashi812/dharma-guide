@@ -1,9 +1,8 @@
 // From a screen at lib/screens/home/home_screen.dart
 import 'package:flutter/material.dart';
 
-import '../../models/models.dart';
 import '../../constants/app_data.dart';
-import '../../theme.dart';
+import '../constants/theme.dart';
 import '../../state/app_state.dart';
 import '../../shared_widgets.dart';
 

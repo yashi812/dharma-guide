@@ -1,4 +1,4 @@
-import 'package:dharma_guide/theme.dart';
+import 'package:dharma_guide/constants/theme.dart';
 import 'package:flutter/material.dart';
 import '../state/app_state.dart';
 import '../../shared_widgets.dart';

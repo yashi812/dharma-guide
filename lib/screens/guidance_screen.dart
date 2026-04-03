@@ -1,7 +1,7 @@
 import 'package:dharma_guide/ai_service.dart' show aiCall;
 import 'package:dharma_guide/constants/app_data.dart' show kTopicFallback, kTopics;
 import 'package:dharma_guide/models/models.dart' show Topic;
-import '../theme.dart';
+import '../constants/theme.dart';
 import 'package:flutter/material.dart';
 import '../constants/app_data.dart';
 import '../models/models.dart';

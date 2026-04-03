@@ -1,6 +1,5 @@
-import 'package:dharma_guide/theme.dart';
+import 'package:dharma_guide/constants/theme.dart';
 import 'package:flutter/material.dart';
-import '../../theme.dart';
 import '../state/app_state.dart';
 
 class SplashScreen extends StatefulWidget {
