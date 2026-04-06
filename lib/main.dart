@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'constants/theme.dart';
 import 'state/app_state.dart';
 import 'screens/splash_screen.dart';
@@ -13,7 +14,14 @@ import 'screens/puja_complete_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/paywall_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: 'https://bklyszfnaebbpkxlmilw.supabase.co',
+    anonKey: 'sb_publishable_KDYRXOZbzamE4t3tX2g4yA_h7ViAC-E',
+  );
+
   runApp(const DharmaGuideApp());
 }
 
@@ -30,11 +38,36 @@ class _DharmaGuideAppState extends State<DharmaGuideApp> {
   @override
   void initState() {
     super.initState();
+
+    // Rebuild UI whenever AppState notifies
     _state.addListener(() => setState(() {}));
-    // Auto-advance from splash after 2.3 seconds
-    Future.delayed(const Duration(milliseconds: 2300), () {
-      if (mounted) _state.nav('onboarding');
-    });
+
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    final session = Supabase.instance.client.auth.currentSession;
+
+    if (session != null) {
+      // Returning user — loadProfile() fetches from profiles + user_stats,
+      // sets _userName, _userStyle, _isPremium, _onboardingDone,
+      // _streak, _pujasDone, _reflectionsCount, then calls notifyListeners().
+      await _state.loadProfile();
+
+      if (!mounted) return;
+
+      // onboardingDone is the public getter on AppState
+      if (_state.onboardingDone) {
+        _state.nav('home');
+      } else {
+        _state.nav('onboarding');
+      }
+    } else {
+      // No session — sit on splash then go to onboarding
+      await Future.delayed(const Duration(milliseconds: 2300));
+      if (!mounted) return;
+      _state.nav('onboarding');
+    }
   }
 
   @override
