@@ -1,0 +1,11 @@
+[33mfe1ef4f[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m Added many working features
+[33m877795e[m Remove secret and restore project
+[33mf89e891[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Add AI service safely
+[33ma3dd98e[m Removed secret key
+[33m7d3c67e[m AI is added in the project.
+[33m35a7621[m Added backend to the code
+[33maa480e3[m Normalize line endings to LF
+[33md13ca7e[m Restore files and add .gitattributes
+[33mb4e9551[m created a new folder lib
+[33m77b0900[m Create README.md with project details and setup
+[33m3275ceb[m Initial commit: DharmaGuide Flutter app
