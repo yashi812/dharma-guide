@@ -3,6 +3,7 @@ import 'package:dharma_guide/screens/aarti_list_screen.dart';
 import 'package:dharma_guide/screens/puja_detail_screen.dart';
 import 'package:dharma_guide/screens/puja_vidhi_list_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:dharma_guide/constants/theme.dart';
 import 'package:dharma_guide/state/app_state.dart';
@@ -22,6 +23,14 @@ import 'screens/manifestation_journal_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Enables background audio playback with lock-screen/notification controls.
+  await JustAudioBackground.init(
+    androidNotificationChannelId: 'com.dharmaguide.dharma_guide.audio',
+    androidNotificationChannelName: 'Dharma Guide Audio',
+    androidNotificationOngoing: true,
+  );
+
   await Supabase.initialize(
     url: 'https://bklyszfnaebbpkxlmilw.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJrbHlzemZuYWViYnBreGxtaWx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0NTI5MDQsImV4cCI6MjA5MTAyODkwNH0.z14EBElS6PeTZQOHkoVLYdPebjIUigRLeHdd4X6bI2I',

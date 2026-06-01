@@ -63,10 +63,12 @@ class VoiceService {
           onPartial(result.recognizedWords);
         }
       },
-      listenFor: listenDuration,
-      pauseFor: const Duration(seconds: 3),
-      localeId: 'hi_IN',
-      cancelOnError: true,
+      listenOptions: stt.SpeechListenOptions(
+        listenFor: listenDuration,
+        pauseFor: const Duration(seconds: 3),
+        localeId: 'hi_IN',
+        cancelOnError: true,
+      ),
     );
 
     // Safety net: if STT never fires finalResult, call onFinal with whatever
