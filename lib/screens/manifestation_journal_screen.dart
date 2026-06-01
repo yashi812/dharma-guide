@@ -1,8 +1,12 @@
+// lib/screens/manifestation_journal_screen.dart
+// Full replacement — only _save() and the import changed.
+
 import 'package:flutter/material.dart';
 import '../constants/theme.dart';
 import '../state/app_state.dart';
 import '../shared_widgets.dart';
 import '../services/supabase_service.dart';
+import '../screens/manifestation_animation_screen.dart'; // ← new
 
 class ManifestationJournalScreen extends StatefulWidget {
   final AppState state;
@@ -40,11 +44,37 @@ class _ManifestationJournalScreenState
     final t = widget.state.currentTechnique;
     if (t == null) return;
 
+    // ── 21-Day Journaling: animated sacred reveal ─────────────────────────
+    if (t.name.contains('21')) {
+      _controller.clear();
+      final saved = await Navigator.push<bool>(
+        context,
+        PageRouteBuilder(
+          pageBuilder: (_, __, ___) => ManifestationAnimationScreen(
+            intention:     text,
+            techniqueName: t.name,
+          ),
+          // Fade transition into the sacred screen
+          transitionsBuilder: (_, anim, __, child) =>
+              FadeTransition(opacity: anim, child: child),
+          transitionDuration: const Duration(milliseconds: 600),
+        ),
+      );
+      if (saved == true && mounted) {
+        setState(() => _saved = true);
+        await _loadHistory();
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) setState(() => _saved = false);
+      }
+      return;
+    }
+
+    // ── All other techniques: save directly (original behaviour) ──────────
     setState(() => _saving = true);
     try {
       await ManifestationService.saveEntry(
         techniqueName: t.name,
-        journalText: text,
+        journalText:   text,
       );
       _controller.clear();
       setState(() { _saved = true; _saving = false; });
@@ -156,7 +186,12 @@ class _ManifestationJournalScreenState
                                 child: CircularProgressIndicator(
                                     color: Colors.white, strokeWidth: 2))
                             : Text(
-                                _saved ? '✓ Saved' : 'Save Entry',
+                                _saved
+                                    ? '✓ Manifested'
+                                    // Special label for 21-day
+                                    : t.name.contains('21')
+                                        ? 'Manifest ✨'
+                                        : 'Save Entry',
                                 style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 15,
@@ -237,7 +272,10 @@ class _ManifestationJournalScreenState
   }
 
   String _hint(String name) {
-    if (name.contains('21')) return 'Write your intention clearly and feel it as real...';
+    if (name.contains('21')) {
+      return 'Write your intention clearly and feel it as already real…\n\n'
+          'e.g. "I am grateful that I now earn ₹1,00,000 per month doing work I love."';
+    }
     if (name.contains('3-6-9')) return 'Write your affirmation and notice how it feels today...';
     if (name.contains('5×55')) return 'Write your affirmation 55 times. Start here...';
     if (name.contains('Script')) return 'Dear future me... today was incredible because...';

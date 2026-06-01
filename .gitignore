@@ -24,3 +24,5 @@ ios/.symlinks/
 # Environment / secrets
 .env
 *.key
+
+.fake

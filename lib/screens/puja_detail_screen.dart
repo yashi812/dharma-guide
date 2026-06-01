@@ -134,7 +134,7 @@ class _VidhiTab extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
       children: [
         // Samagri section
-        _SectionHeader(title: '🛒  Samagri (Items Needed)'),
+        const _SectionHeader(title: '🛒  Samagri (Items Needed)'),
         const SizedBox(height: 8),
         DharmaCard(
           child: Column(
@@ -160,7 +160,7 @@ class _VidhiTab extends StatelessWidget {
         const SizedBox(height: 20),
 
         // Step-by-step vidhi
-        _SectionHeader(title: '📿  Step-by-Step Vidhi'),
+        const _SectionHeader(title: '📿  Step-by-Step Vidhi'),
         const SizedBox(height: 8),
 
         ...puja.vidhi.asMap().entries.map((entry) {
@@ -272,7 +272,7 @@ class _KathaTab extends StatelessWidget {
         _SectionHeader(title: '📖  ${katha!.title}'),
         const SizedBox(height: 12),
 
-        ...?katha?.paragraphs.map((para) => Padding(
+        ...katha.paragraphs.map((para) => Padding(
           padding: const EdgeInsets.only(bottom: 14),
           child: DharmaCard(
             child: Text(para,
@@ -295,7 +295,7 @@ class _KathaTab extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                       color: kRust)),
               const SizedBox(height: 8),
-              Text(katha!.phalashruti,
+              Text(katha.phalashruti,
                   style: const TextStyle(
                       fontSize: 13,
                       color: kText,

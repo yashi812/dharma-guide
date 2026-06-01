@@ -8,6 +8,7 @@
 //   shared_preferences: ^2.2.3
 // ============================================================
 
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // ── Init (call in main.dart before runApp) ──────────────────
@@ -25,7 +26,7 @@ Future<void> initSupabase() async {
 
 SupabaseClient get _db => Supabase.instance.client;
 User? get currentUser => _db.auth.currentUser;
-String get _uid => currentUser!.id;
+String? get _uid => currentUser?.id;
 
 // ============================================================
 // AUTH
@@ -76,14 +77,14 @@ class ProfileService {
     return await _db
         .from(_table)
         .select()
-        .eq('id', _uid)
+        .eq('id', _uid!)
         .maybeSingle();
   }
 
   /// Update profile fields.
   static Future<void> updateProfile(Map<String, dynamic> data) async {
     // FIX: .eq() on PostgrestFilterBuilder (from .update()), not after .select()
-    await _db.from(_table).update(data).eq('id', _uid);
+    await _db.from(_table).update(data).eq('id', _uid!);
   }
 
   /// Set user name (called at onboarding step 2).
@@ -111,7 +112,7 @@ class ProfileService {
     return await _db
         .from('user_stats')
         .select()
-        .eq('user_id', _uid)
+        .eq('user_id', _uid!)
         .maybeSingle();
   }
 
@@ -120,7 +121,7 @@ class ProfileService {
     return _db
         .from(_table)
         .stream(primaryKey: ['id'])
-        .eq('id', _uid);
+        .eq('id', _uid!);
   }
 }
 
@@ -225,7 +226,7 @@ class PujaService {
     return await _db
         .from(_sessions)
         .select('*, mantras(name, deity, slug)')
-        .eq('user_id', _uid)
+        .eq('user_id', _uid!)
         .order('completed_at', ascending: false)
         .limit(limit);
   }
@@ -236,7 +237,7 @@ class PujaService {
     final res = await _db
         .from(_sessions)
         .select('id')
-        .eq('user_id', _uid)
+        .eq('user_id', _uid!)
         .filter('lines_completed', 'eq', 'lines_total')
         .count(CountOption.exact);
     return res.count;
@@ -278,7 +279,7 @@ class ReflectionService {
     return await _db
         .from(_table)
         .select()
-        .eq('user_id', _uid)
+        .eq('user_id', _uid!)
         .eq('reflected_on', today)
         .maybeSingle();
   }
@@ -291,7 +292,7 @@ class ReflectionService {
     return await _db
         .from(_table)
         .select()
-        .eq('user_id', _uid)
+        .eq('user_id', _uid!)
         .order('reflected_on', ascending: false)
         .limit(limit);
   }
@@ -302,7 +303,7 @@ class ReflectionService {
     final res = await _db
         .from(_table)
         .select('id')
-        .eq('user_id', _uid)
+        .eq('user_id', _uid!)
         .count(CountOption.exact);
     return res.count;
   }
@@ -363,10 +364,52 @@ class GuidanceService {
     return await _db
         .from(_sessions)
         .select()
-        .eq('user_id', _uid)
+        .eq('user_id', _uid!)
         .order('created_at', ascending: false)
         .limit(limit);
   }
+/// Save an arbitrary user input field for analytics/persistence.
+  static Future<void> saveUserInput({
+    required String screen,
+    required String fieldName,
+    required String value,
+  }) async {
+    try {
+      await _db.from('user_inputs').upsert({
+        'user_id':    _uid,
+        'screen':     screen,
+        'field_name': fieldName,
+        'value':      value,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      debugPrint('GuidanceService.saveUserInput error: $e');
+    }
+  }
+
+  /// Upsert core user profile fields.
+  static Future<void> upsertUserProfile({
+    required String name,
+    required String guidanceStyle,
+    required String birthDate,
+    required String birthTime,
+    required String birthPlace,
+    required String birthGender,
+  }) async {
+    try {
+      await ProfileService.updateProfile({
+        'user_name':    name,
+        'user_style':   guidanceStyle,
+        'birth_date':   birthDate,
+        'birth_time':   birthTime,
+        'birth_place':  birthPlace,
+        'birth_gender': birthGender,
+      });
+    } catch (e) {
+      debugPrint('GuidanceService.upsertUserProfile error: $e');
+    }
+  }
+
 }
 
 // ============================================================
@@ -455,7 +498,7 @@ class ManifestationService {
     return await _db
         .from(_table)
         .select()
-        .eq('user_id', _uid)
+        .eq('user_id', _uid !)
         .order('journaled_on', ascending: false)
         .limit(limit);
   }
@@ -467,7 +510,7 @@ class ManifestationService {
     return await _db
         .from(_table)
         .select()
-        .eq('user_id', _uid)
+        .eq('user_id', _uid!)
         .eq('technique_name', techniqueName)
         .order('journaled_on', ascending: false)
         .limit(limit);

@@ -1,7 +1,4 @@
-// lib/state/app_state.dart  (REVISED — Supabase-backed)
-// ============================================================
-// Drop-in replacement for your existing AppState.
-// All screens keep the same API; data now persists via Supabase.
+// lib/state/app_state.dart  (REVISED — Supabase-backed + birth details)
 // ============================================================
 
 import 'package:dharma_guide/app_data.dart';
@@ -25,7 +22,7 @@ class AppState extends ChangeNotifier {
   int get onboardingStep => _onboardingStep;
 
   bool _onboardingDone = false;
-  bool get onboardingDone => _onboardingDone; // FIX: explicit public getter
+  bool get onboardingDone => _onboardingDone;
 
   void nextOnboardingStep(int step) {
     _onboardingStep = step;
@@ -39,11 +36,31 @@ class AppState extends ChangeNotifier {
   int _streak = 0;
   String? _kundliData;
 
+  // ── Birth details (stored for silent re-enrichment) ──────────
+  String? _birthName;
+  String? _birthDate;   // DD/MM/YYYY
+  String? _birthTime;   // HH:MM
+  String? _birthPlace;
+  String? _birthGender;
+
   String get userName => _userName;
   String get userStyle => _userStyle;
   bool get isPremium => _isPremium;
   int get streak => _streak;
   String? get kundliData => _kundliData;
+
+  // Birth detail getters
+  String? get birthName => _birthName;
+  String? get birthDate => _birthDate;
+  String? get birthTime => _birthTime;
+  String? get birthPlace => _birthPlace;
+  String? get birthGender => _birthGender;
+
+  /// True when we have all four fields needed to call VedAstro
+  bool get hasBirthDetails =>
+      _birthDate != null &&
+      _birthTime != null &&
+      _birthPlace != null;
 
   // ── Stats ────────────────────────────────────────────────────
   int _pujasDone = 0;
@@ -58,7 +75,6 @@ class AppState extends ChangeNotifier {
   String? get activeSessionId => _activeSessionId;
 
   // ── Load profile from Supabase on startup ───────────────────
-  // FIX: method is properly defined as Future<void> on AppState itself
   Future<void> loadProfile() async {
     try {
       final profile = await ProfileService.fetchProfile();
@@ -68,14 +84,20 @@ class AppState extends ChangeNotifier {
         _isPremium      = profile['is_premium']      as bool?   ?? false;
         _onboardingDone = profile['onboarding_done'] as bool?   ?? false;
         _kundliData     = profile['kundli_data']     as String?;
+
+        // Restore birth details if previously saved
+        _birthName   = profile['birth_name']   as String?;
+        _birthDate   = profile['birth_date']   as String?;
+        _birthTime   = profile['birth_time']   as String?;
+        _birthPlace  = profile['birth_place']  as String?;
+        _birthGender = profile['birth_gender'] as String?;
       }
 
       final stats = await ProfileService.fetchStats();
       if (stats != null) {
-        // FIX: column names match user_stats schema (streak_current, not streak)
-        _streak           = stats['streak_current']    as int? ?? 0;
-        _pujasDone        = stats['pujas_done']         as int? ?? 0;
-        _reflectionsCount = stats['reflections_count']  as int? ?? 0;
+        _streak           = stats['streak_current']   as int? ?? 0;
+        _pujasDone        = stats['pujas_done']        as int? ?? 0;
+        _reflectionsCount = stats['reflections_count'] as int? ?? 0;
       }
 
       notifyListeners();
@@ -86,22 +108,63 @@ class AppState extends ChangeNotifier {
 
   // ── Profile mutations ────────────────────────────────────────
   Future<void> setUserName(String name) async {
-    _userName = name;
-    _onboardingDone = true;
-    notifyListeners();
+  _userName = name;
+  _onboardingDone = true;
+  notifyListeners();
+  try {
     await ProfileService.setUserName(name);
+  } catch (e) {
+    debugPrint('setUserName Supabase error (ignored): $e');
   }
+}
 
   Future<void> setUserStyle(String style) async {
-    _userStyle = style;
-    notifyListeners();
+  _userStyle = style;
+  notifyListeners();
+  try {
     await ProfileService.setUserStyle(style);
+  } catch (e) {
+    debugPrint('setUserStyle error (ignored): $e');
   }
+}
 
   Future<void> setKundliData(String data) async {
     _kundliData = data;
     notifyListeners();
     await ProfileService.updateProfile({'kundli_data': data});
+  }
+
+  /// Store birth details locally + in Supabase profile.
+  /// Call this right after collecting the birth form — before the VedAstro call.
+  Future<void> setBirthDetails({
+    required String name,
+    required String date,
+    required String time,
+    required String place,
+    required String gender,
+  }) async {
+    _birthName   = name;
+    _birthDate   = date;
+    _birthTime   = time;
+    _birthPlace  = place;
+    _birthGender = gender;
+    notifyListeners();
+    try {
+      await ProfileService.updateProfile({
+        'birth_name':   name,
+        'birth_date':   date,
+        'birth_time':   time,
+        'birth_place':  place,
+        'birth_gender': gender,
+      });
+    } catch (_) {}
+  }
+
+  /// Clear kundli data only (birth details retained for re-generation).
+  Future<void> clearKundliData() async {
+    _kundliData = null;
+    notifyListeners();
+    await ProfileService.updateProfile({'kundli_data': null});
   }
 
   Future<void> setPremium(bool value, {String? plan}) async {
@@ -180,7 +243,6 @@ class AppState extends ChangeNotifier {
       );
       if (linesCompleted == _selectedMantra!.lines.length) {
         _pujasDone++;
-        // Streak is updated server-side via trigger; reload to reflect it
         await loadProfile();
       }
     } catch (e) {
@@ -207,7 +269,7 @@ class AppState extends ChangeNotifier {
         journalText: journalText,
       );
       _reflectionsCount++;
-      await loadProfile(); // refresh streak + stats from DB
+      await loadProfile();
       notifyListeners();
     } catch (e) {
       debugPrint('saveReflection error: $e');
@@ -219,10 +281,9 @@ ManifestationTechnique? get currentTechnique => _currentTechnique;
 
 void setTechnique(ManifestationTechnique t) {
   _currentTechnique = t;
-  notifyListeners(); // or setState, depending on your state pattern
-
-
+  notifyListeners();
 }
+
 Aarti? _currentAarti;
   Aarti? get currentAarti => _currentAarti;
 
@@ -237,4 +298,4 @@ void setVistarPuja(VistarPuja p) {
   currentVistarPuja = p;
   notifyListeners();
 }
-}  
+}

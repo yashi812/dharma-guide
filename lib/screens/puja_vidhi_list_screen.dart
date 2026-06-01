@@ -2,7 +2,6 @@ import 'package:dharma_guide/app_data.dart';
 import 'package:flutter/material.dart';
 import '../state/app_state.dart';
 import '../constants/theme.dart';
-import '../constants/app_data.dart';
 import '../shared_widgets.dart';
 
 class PujaVidhiListScreen extends StatelessWidget {

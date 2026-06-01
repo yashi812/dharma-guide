@@ -111,7 +111,7 @@ class AartiDetailScreen extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          i == 0 ? 'मुखड़ा' : 'अन्तरा ${i}',
+                          i == 0 ? 'मुखड़ा' : 'अन्तरा $i',
                           style: const TextStyle(
                               fontSize: 10,
                               color: kDim,

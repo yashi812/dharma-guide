@@ -143,7 +143,7 @@ class TechniqueDetailScreen extends StatelessWidget {
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             border: idx < t.steps.length - 1
-                                ? Border(
+                                ? const Border(
                                     bottom: BorderSide(color: kBorder))
                                 : null,
                           ),
