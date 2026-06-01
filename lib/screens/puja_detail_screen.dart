@@ -3,8 +3,6 @@ import 'package:dharma_guide/models.dart';
 import 'package:flutter/material.dart';
 import '../state/app_state.dart';
 import '../constants/theme.dart';
-import '../constants/app_data.dart';
-import '../models/models.dart';
 import '../shared_widgets.dart';
 
 class PujaDetailScreen extends StatefulWidget {

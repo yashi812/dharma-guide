@@ -76,22 +76,23 @@ class AppState extends ChangeNotifier {
 
   // ── Load profile from Supabase on startup ───────────────────
   Future<void> loadProfile() async {
-    try {
-      final profile = await ProfileService.fetchProfile();
-      if (profile != null) {
-        _userName       = profile['user_name']      as String? ?? 'Seeker';
-        _userStyle      = profile['user_style']      as String? ?? 'balanced';
-        _isPremium      = profile['is_premium']      as bool?   ?? false;
-        _onboardingDone = profile['onboarding_done'] as bool?   ?? false;
-        _kundliData     = profile['kundli_data']     as String?;
+  try {
+    final profile = await ProfileService.fetchProfile();
+    if (profile != null) {
+      _userName       = profile['user_name']      as String? ?? 'Seeker';
+      _userStyle      = profile['user_style']      as String? ?? 'balanced';
+      _isPremium      = profile['is_premium']      as bool?   ?? false;
+      _kundliData     = profile['kundli_data']     as String?;
+      _birthName      = profile['birth_name']      as String?;
+      _birthDate      = profile['birth_date']      as String?;
+      _birthTime      = profile['birth_time']      as String?;
+      _birthPlace     = profile['birth_place']     as String?;
+      _birthGender    = profile['birth_gender']    as String?;
 
-        // Restore birth details if previously saved
-        _birthName   = profile['birth_name']   as String?;
-        _birthDate   = profile['birth_date']   as String?;
-        _birthTime   = profile['birth_time']   as String?;
-        _birthPlace  = profile['birth_place']  as String?;
-        _birthGender = profile['birth_gender'] as String?;
-      }
+      // ── Keep this line commented out during dev, restore for release ──
+      // _onboardingDone = profile['onboarding_done'] as bool? ?? false;
+      _onboardingDone = kDebugMode ? false : (profile['onboarding_done'] as bool? ?? false);
+    }
 
       final stats = await ProfileService.fetchStats();
       if (stats != null) {
@@ -107,9 +108,19 @@ class AppState extends ChangeNotifier {
   }
 
   // ── Profile mutations ────────────────────────────────────────
-  Future<void> setUserName(String name) async {
-  _userName = name;
+  Future<void> completeOnboarding() async {
   _onboardingDone = true;
+  notifyListeners();
+  try {
+    await ProfileService.updateProfile({'onboarding_done': true});
+  } catch (e) {
+    debugPrint('completeOnboarding error (ignored): $e');
+  }
+}
+
+Future<void> setUserName(String name) async {
+  _userName = name;
+  // ← removed _onboardingDone = true from here
   notifyListeners();
   try {
     await ProfileService.setUserName(name);

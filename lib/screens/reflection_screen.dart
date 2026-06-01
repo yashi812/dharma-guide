@@ -4,7 +4,7 @@ import '../constants/app_data.dart';
 import '../../models/models.dart';
 import '../state/app_state.dart';
 import '../../shared_widgets.dart';
-import '../services/ai_service.dart';
+import '../../services/gemini_service.dart';
 import '../../services/supabase_service.dart';
 
 // Mood → Gita verse mapping

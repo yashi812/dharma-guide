@@ -9,13 +9,11 @@
 
 import 'package:dharma_guide/state/app_state.dart';
 import 'package:flutter/material.dart';
-import '../state/app_state.dart';
 import '../constants/theme.dart';
 import '../../shared_widgets.dart';
 import '../services/supabase_service.dart';
 import '../services/gemini_service.dart';
 import '../services/vedastro_service.dart';
-import '../state/app_state.dart';
 
 class BirthDetailsScreen extends StatefulWidget {
   final AppState state;

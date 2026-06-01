@@ -66,7 +66,7 @@ class _GuidanceScreenState extends State<GuidanceScreen>
   bool _speechAvailable = false;
   bool _isListening = false;
   String _voiceBuffer = '';
-  String _voiceBase = '';
+  final String _voiceBase = '';
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
@@ -152,12 +152,12 @@ Future<void> _showVoiceDialog() async {
   bool listening = false;
   bool done      = false;
   bool started   = false;
-  StateSetter? _setDialog;
+  StateSetter? setDialog;
 
   // ── startListening: platform-aware ────────────────────────────
   void startListening() {
   listening = true;
-  _setDialog?.call(() {});
+  setDialog?.call(() {});
 
   _speech.listen(
     onResult: (result) {
@@ -169,7 +169,7 @@ Future<void> _showVoiceDialog() async {
         done      = true;
         listening = false;
       }
-      _setDialog?.call(() {});
+      setDialog?.call(() {});
     },
     onSoundLevelChange: (level) {
       debugPrint('[Voice] sound level: $level'); // if this never prints, mic is blocked
@@ -189,7 +189,7 @@ Future<void> _showVoiceDialog() async {
       if ((status == 'notListening' || status == 'done') && !done && started) {
         debugPrint('[Voice] Android stopped early — restarting');
         Future.delayed(const Duration(milliseconds: 150), () {
-          if (!done && _setDialog != null) {
+          if (!done && setDialog != null) {
             startListening();
           }
         });
@@ -203,7 +203,7 @@ Future<void> _showVoiceDialog() async {
     builder: (ctx) {
       return StatefulBuilder(
         builder: (ctx, setDialogState) {
-          _setDialog = setDialogState;
+          setDialog = setDialogState;
 
           if (!started) {
             started = true;
@@ -307,7 +307,7 @@ Future<void> _showVoiceDialog() async {
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(100)),
-                        side: BorderSide(color: kBorder),
+                        side: const BorderSide(color: kBorder),
                       ),
                       child: const Text('Cancel',
                           style: TextStyle(color: kDim, fontSize: 14)),
@@ -495,7 +495,7 @@ Future<void> _showVoiceDialog() async {
     // ── Session diagnostics ──────────────────────────────────────
   final session = Supabase.instance.client.auth.currentSession;
   debugPrint('[GuidanceScreen] session null: ${session == null}');
-  debugPrint('[GuidanceScreen] access token: ${session?.accessToken?.substring(0, 20)}...');
+  debugPrint('[GuidanceScreen] access token: ${session?.accessToken.substring(0, 20)}...');
 
   // Edge function uses anon key — no user session required
 if (session == null) {

@@ -73,6 +73,7 @@ class ProfileService {
 
   /// Fetch the current user's profile.
   static Future<Map<String, dynamic>?> fetchProfile() async {
+    if (_uid == null) return null;
     // FIX: .eq() before .select() — filter first, then transform
     return await _db
         .from(_table)
@@ -83,6 +84,7 @@ class ProfileService {
 
   /// Update profile fields.
   static Future<void> updateProfile(Map<String, dynamic> data) async {
+    if (_uid == null) return;  
     // FIX: .eq() on PostgrestFilterBuilder (from .update()), not after .select()
     await _db.from(_table).update(data).eq('id', _uid!);
   }
@@ -374,6 +376,7 @@ class GuidanceService {
     required String fieldName,
     required String value,
   }) async {
+    if (_uid == null) return; 
     try {
       await _db.from('user_inputs').upsert({
         'user_id':    _uid,
@@ -396,6 +399,7 @@ class GuidanceService {
     required String birthPlace,
     required String birthGender,
   }) async {
+    if (_uid == null) return;
     try {
       await ProfileService.updateProfile({
         'user_name':    name,

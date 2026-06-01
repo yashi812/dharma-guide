@@ -2,7 +2,6 @@ import 'package:dharma_guide/screens/aarti_detail_screen.dart';
 import 'package:dharma_guide/screens/aarti_list_screen.dart';
 import 'package:dharma_guide/screens/puja_detail_screen.dart';
 import 'package:dharma_guide/screens/puja_vidhi_list_screen.dart';
-import 'package:dharma_guide/services/supabase_service.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:dharma_guide/constants/theme.dart';
@@ -22,17 +21,11 @@ import 'screens/technique_detail_screen.dart';
 import 'screens/manifestation_journal_screen.dart';
 
 void main() async {
-  void main() async {
-  WidgetsFlutterBinding.ensureInitialized(); // ← must be first
-  await initSupabase();                      // ← before runApp
-}
   WidgetsFlutterBinding.ensureInitialized();
-
   await Supabase.initialize(
     url: 'https://bklyszfnaebbpkxlmilw.supabase.co',
-    anonKey: 'sb_publishable_KDYRXOZbzamE4t3tX2g4yA_h7ViAC-E',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJrbHlzemZuYWViYnBreGxtaWx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0NTI5MDQsImV4cCI6MjA5MTAyODkwNH0.z14EBElS6PeTZQOHkoVLYdPebjIUigRLeHdd4X6bI2I',
   );
-
   runApp(const DharmaGuideApp());
 }
 
@@ -46,11 +39,6 @@ class DharmaGuideApp extends StatefulWidget {
 class _DharmaGuideAppState extends State<DharmaGuideApp> {
   final AppState _state = AppState();
 
-  // True once the user (or a screen) has called nav() past 'splash'.
-  // _bootstrap checks this before its own nav() calls so it never
-  // overwrites a navigation the user already triggered.
-  bool _userNavigated = false;
-
   @override
   void initState() {
     super.initState();
@@ -58,31 +46,40 @@ class _DharmaGuideAppState extends State<DharmaGuideApp> {
     _bootstrap();
   }
 
-  void _onStateChanged() {
-    // Any nav() away from splash means the user is in control.
-    if (_state.screen != 'splash') {
-      _userNavigated = true;
-    }
-    setState(() {});
-  }
+  void _onStateChanged() => setState(() {});
 
   Future<void> _bootstrap() async {
-    final session = Supabase.instance.client.auth.currentSession;
+    // ── Ensure there is always an authenticated user ──────────
+    // If no session exists, sign in anonymously so every
+    // Supabase call has a valid auth.uid() and RLS passes.
+    var session = Supabase.instance.client.auth.currentSession;
+    if (session == null) {
+      try {
+        await Supabase.instance.client.auth.signInAnonymously();
+        session = Supabase.instance.client.auth.currentSession;
+      } catch (e) {
+        debugPrint('Anonymous sign-in failed: $e');
+      }
+    }
+
+    if (!mounted) return;
 
     if (session != null) {
+      // Load profile — this tells us if onboarding was completed before
       await _state.loadProfile();
-      if (!mounted || _userNavigated) return; // ← guard
+      if (!mounted) return;
       if (_state.onboardingDone) {
         _state.nav('home');
       } else {
         _state.nav('onboarding');
       }
     } else {
+      // No session even after anon sign-in (offline?) — show splash
+      // briefly then go to onboarding without Supabase calls
       await Future.delayed(const Duration(milliseconds: 2300));
-      if (!mounted || _userNavigated) return; // ← guard
+      if (!mounted) return;
       _state.nav('onboarding');
     }
-    _state.nav('home');
   }
 
   @override

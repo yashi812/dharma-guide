@@ -7,6 +7,14 @@ import '../services/supabase_service.dart';
 import '../services/gemini_service.dart';
 import '../services/vedastro_service.dart';
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Step indices
+// ═══════════════════════════════════════════════════════════════════════════
+//   0 → Welcome splash
+//   1 → Name entry
+//   2 → Guidance style
+//   3 → Kundli / birth details  (optional — user can skip)
+
 class OnboardingScreen extends StatefulWidget {
   final AppState state;
   const OnboardingScreen({super.key, required this.state});
@@ -16,12 +24,16 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
+  // ── Controllers ──────────────────────────────────────────────────────────
   final _nameController  = TextEditingController();
   final _placeController = TextEditingController();
 
+  // ── Birth-detail state ───────────────────────────────────────────────────
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
   String _gender = 'Male';
+
+  // ── Loading ───────────────────────────────────────────────────────────────
   bool _isGenerating = false;
 
   @override
@@ -31,7 +43,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
-  // ── Date picker ───────────────────────────────────────────────
+  // ── Pickers ───────────────────────────────────────────────────────────────
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
@@ -45,8 +57,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             onPrimary: Colors.white,
             onSurface: kText,
             surface: kSurface,
-          ),
-          dialogBackgroundColor: kSurface,
+          ), dialogTheme: DialogThemeData(backgroundColor: kSurface),
         ),
         child: child!,
       ),
@@ -54,7 +65,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (picked != null) setState(() => _selectedDate = picked);
   }
 
-  // ── Time picker ───────────────────────────────────────────────
   Future<void> _pickTime() async {
     final picked = await showTimePicker(
       context: context,
@@ -66,8 +76,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             onPrimary: Colors.white,
             onSurface: kText,
             surface: kSurface,
-          ),
-          dialogBackgroundColor: kSurface,
+          ), dialogTheme: DialogThemeData(backgroundColor: kSurface),
         ),
         child: child!,
       ),
@@ -75,7 +84,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (picked != null) setState(() => _selectedTime = picked);
   }
 
-  // ── Format helpers ────────────────────────────────────────────
+  // ── Format helpers ────────────────────────────────────────────────────────
   String get _dobFormatted {
     if (_selectedDate == null) return '';
     final d = _selectedDate!;
@@ -89,26 +98,68 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return '$h:$m';
   }
 
-  // ── Skip — go home without kundli ────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  String get _resolvedName {
+    final t = _nameController.text.trim();
+    return t.isEmpty ? 'Seeker' : t;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 1 → 2 transition: save name, advance
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<void> _saveName() async {
+    await widget.state.setUserName(_resolvedName);
+    // Persist name to Supabase immediately so it's never lost
+    await GuidanceService.saveUserInput(
+      screen: 'onboarding',
+      fieldName: 'birth_name',
+      value: _resolvedName,
+    );
+    if (mounted) widget.state.nextOnboardingStep(2);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 2 → 3 transition: save style, advance
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<void> _saveStyle() async {
+    await GuidanceService.saveUserInput(
+      screen: 'onboarding',
+      fieldName: 'guidance_style',
+      value: widget.state.userStyle,
+    );
+    if (mounted) widget.state.nextOnboardingStep(3);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Skip kundli — persist what we have and go home
+  // ─────────────────────────────────────────────────────────────────────────
   Future<void> _skip() async {
-    final name = _nameController.text.trim().isEmpty
-        ? 'Seeker'
-        : _nameController.text.trim();
-    await widget.state.setUserName(name);
+    // Make sure name + style are persisted even if user never hit "Continue"
+    await Future.wait([
+      widget.state.setUserName(_resolvedName),
+      widget.state.completeOnboarding(), // ← add this
+      GuidanceService.upsertUserProfile(
+        name: _resolvedName,
+        guidanceStyle: widget.state.userStyle,
+        birthDate: '',
+        birthTime: '',
+        birthPlace: '',
+        birthGender: '',
+      ),
+    ]);
     if (mounted) widget.state.nav('home');
   }
 
-  // ── Illuminate — generate kundli then go home ─────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Illuminate — generate kundli profile, save everything, go home
+  // ─────────────────────────────────────────────────────────────────────────
   Future<void> _illuminate() async {
-    final name  = _nameController.text.trim().isEmpty
-        ? 'Seeker'
-        : _nameController.text.trim();
+    final name  = _resolvedName;
     final place = _placeController.text.trim();
     final dob   = _dobFormatted;
     final time  = _timeFormatted;
 
     await widget.state.setUserName(name);
-
     setState(() => _isGenerating = true);
 
     try {
@@ -120,15 +171,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         gender: _gender,
       );
 
+      // Persist all fields to Supabase in parallel
       await Future.wait([
-        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_name',   value: name),
-        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_date',   value: dob),
-        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_time',   value: time),
-        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_place',  value: place),
-        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_gender', value: _gender),
+        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_name',     value: name),
+        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_date',     value: dob),
+        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_time',     value: time),
+        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_place',    value: place),
+        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_gender',   value: _gender),
+        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'guidance_style', value: widget.state.userStyle),
         GuidanceService.upsertUserProfile(
-          name: name, guidanceStyle: widget.state.userStyle,
-          birthDate: dob, birthTime: time, birthPlace: place, birthGender: _gender,
+          name:          name,
+          guidanceStyle: widget.state.userStyle,
+          birthDate:     dob,
+          birthTime:     time,
+          birthPlace:    place,
+          birthGender:   _gender,
         ),
       ]);
 
@@ -180,195 +237,206 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     if (mounted) {
       setState(() => _isGenerating = false);
+      await widget.state.completeOnboarding();
       widget.state.nav('home');
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
   // BUILD
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
-    final step = widget.state.onboardingStep;
-    if (step == 0) return _step0();
-    if (step == 1) return _step1();
-    if (step == 2) return _step2();
-    return _step3();
+    switch (widget.state.onboardingStep) {
+      case 0:  return _step0();
+      case 1:  return _step1();
+      case 2:  return _step2();
+      default: return _step3();
+    }
   }
 
-  // ── Step 0: Welcome ───────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 0: Welcome splash
+  // ─────────────────────────────────────────────────────────────────────────
   Widget _step0() => Scaffold(
-        backgroundColor: kBg,
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(28, 40, 28, 40),
-            child: Column(
-              children: [
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      Text('ॐ', style: TextStyle(fontSize: 88, height: 1)),
-                      SizedBox(height: 16),
-                      Text(
-                        'Begin Your\nDharmic Journey',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 42,
-                            color: kText,
-                            fontWeight: FontWeight.w400,
-                            height: 1.15),
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        'A calm space for daily wisdom, guided practices, and spiritual clarity rooted in ancient Gita teachings.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: kDim, fontSize: 15, height: 1.9),
-                      ),
-                    ],
+    backgroundColor: kBg,
+    body: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(28, 40, 28, 40),
+        child: Column(
+          children: [
+            const Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('ॐ', style: TextStyle(fontSize: 88, height: 1)),
+                  SizedBox(height: 16),
+                  Text(
+                    'Begin Your\nDharmic Journey',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 42, color: kText,
+                      fontWeight: FontWeight.w400, height: 1.15,
+                    ),
                   ),
-                ),
-                DharmaBtn(
-                  label: 'Get Started →',
-                  onTap: () => widget.state.nextOnboardingStep(1),
-                ),
-              ],
+                  SizedBox(height: 16),
+                  Text(
+                    'A calm space for daily wisdom, guided practices, '
+                    'and spiritual clarity rooted in ancient Gita teachings.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: kDim, fontSize: 15, height: 1.9),
+                  ),
+                ],
+              ),
             ),
-          ),
+            DharmaBtn(
+              label: 'Get Started →',
+              onTap: () => widget.state.nextOnboardingStep(1),
+            ),
+          ],
         ),
-      );
+      ),
+    ),
+  );
 
-  // ── Step 1: Choose Style ──────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 1: Enter name
+  // ─────────────────────────────────────────────────────────────────────────
   Widget _step1() => Scaffold(
-        backgroundColor: kBg,
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 52, 24, 36),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                BackBtn(onTap: () => widget.state.nextOnboardingStep(0)),
-                const SizedBox(height: 20),
-                const Text('STEP 1 OF 3',
-                    style: TextStyle(fontSize: 11, color: kDim, letterSpacing: 1.5)),
-                const SizedBox(height: 6),
-                const Text('Choose Your Path',
-                    style: TextStyle(fontSize: 30, color: kText, fontWeight: FontWeight.w400)),
-                const SizedBox(height: 4),
-                const Text('How should guidance reach you?',
-                    style: TextStyle(fontSize: 13, color: kDim)),
-                const SizedBox(height: 24),
-                Expanded(
-                  child: ListView(
-                    children: kStyles.map((gs) {
-                      final selected = widget.state.userStyle == gs.id;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: DharmaCard(
-                          onTap: () => widget.state.setUserStyle(gs.id),
-                          decoration: BoxDecoration(
-                            color: selected ? const Color(0xFFFFF8ED) : kSurface,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                                color: selected ? kAccent : kBorder,
-                                width: selected ? 2 : 1),
-                            boxShadow: [
-                              BoxShadow(
-                                  color: Colors.black.withOpacity(0.04),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 2))
+    backgroundColor: kBg,
+    body: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 52, 24, 36),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            BackBtn(onTap: () => widget.state.nextOnboardingStep(0)),
+            const SizedBox(height: 20),
+            const Text('STEP 1 OF 3',
+                style: TextStyle(fontSize: 11, color: kDim, letterSpacing: 1.5)),
+            const SizedBox(height: 6),
+            const Text('What shall we call you?',
+                style: TextStyle(fontSize: 30, color: kText, fontWeight: FontWeight.w400)),
+            const SizedBox(height: 4),
+            const Text('Your name personalises your guidance.',
+                style: TextStyle(fontSize: 13, color: kDim)),
+            const SizedBox(height: 32),
+            TextField(
+              controller: _nameController,
+              textCapitalization: TextCapitalization.words,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'Your name…',
+                hintStyle: const TextStyle(color: kDim),
+                filled: true,
+                fillColor: kSurface,
+                prefixIcon: const Icon(Icons.person_outline, color: kDim, size: 20),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: kBorder),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: kAccent, width: 1.5),
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              ),
+              style: const TextStyle(fontSize: 16, color: kText),
+            ),
+            const Spacer(),
+            DharmaBtn(
+              label: 'Continue →',
+              onTap: _saveName,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 2: Choose guidance style
+  // ─────────────────────────────────────────────────────────────────────────
+  Widget _step2() => Scaffold(
+    backgroundColor: kBg,
+    body: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 52, 24, 36),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            BackBtn(onTap: () => widget.state.nextOnboardingStep(1)),
+            const SizedBox(height: 20),
+            const Text('STEP 2 OF 3',
+                style: TextStyle(fontSize: 11, color: kDim, letterSpacing: 1.5)),
+            const SizedBox(height: 6),
+            const Text('Choose Your Path',
+                style: TextStyle(fontSize: 30, color: kText, fontWeight: FontWeight.w400)),
+            const SizedBox(height: 4),
+            const Text('How should guidance reach you?',
+                style: TextStyle(fontSize: 13, color: kDim)),
+            const SizedBox(height: 24),
+            Expanded(
+              child: ListView(
+                children: kStyles.map((gs) {
+                  final selected = widget.state.userStyle == gs.id;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: DharmaCard(
+                      onTap: () => widget.state.setUserStyle(gs.id),
+                      decoration: BoxDecoration(
+                        color: selected ? const Color(0xFFFFF8ED) : kSurface,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: selected ? kAccent : kBorder,
+                          width: selected ? 2 : 1,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.04),
+                            blurRadius: 12,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(children: [
+                        Text(gs.icon, style: const TextStyle(fontSize: 28)),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(gs.label,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                      color: kText, fontSize: 15)),
+                              Text(gs.desc,
+                                  style: const TextStyle(fontSize: 12, color: kDim)),
                             ],
                           ),
-                          child: Row(children: [
-                            Text(gs.icon, style: const TextStyle(fontSize: 28)),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(gs.label,
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.w500,
-                                            color: kText,
-                                            fontSize: 15)),
-                                    Text(gs.desc,
-                                        style: const TextStyle(fontSize: 12, color: kDim)),
-                                  ]),
-                            ),
-                            if (selected)
-                              const Text('✓',
-                                  style: TextStyle(color: kAccent, fontSize: 18)),
-                          ]),
                         ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-                DharmaBtn(
-                  label: 'Continue →',
-                  onTap: () => widget.state.nextOnboardingStep(2),
-                ),
-              ],
+                        if (selected)
+                          const Text('✓', style: TextStyle(color: kAccent, fontSize: 18)),
+                      ]),
+                    ),
+                  );
+                }).toList(),
+              ),
             ),
-          ),
-        ),
-      );
-
-  // ── Step 2: Enter Name ────────────────────────────────────────
-  Widget _step2() => Scaffold(
-        backgroundColor: kBg,
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 52, 24, 36),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                BackBtn(onTap: () => widget.state.nextOnboardingStep(1)),
-                const SizedBox(height: 20),
-                const Text('STEP 2 OF 3',
-                    style: TextStyle(fontSize: 11, color: kDim, letterSpacing: 1.5)),
-                const SizedBox(height: 6),
-                const Text('What shall we call you?',
-                    style: TextStyle(
-                        fontSize: 30, color: kText, fontWeight: FontWeight.w400)),
-                const SizedBox(height: 4),
-                const Text('Your name personalizes your guidance.',
-                    style: TextStyle(fontSize: 13, color: kDim)),
-                const SizedBox(height: 32),
-                TextField(
-                  controller: _nameController,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: InputDecoration(
-                    hintText: 'Your name...',
-                    hintStyle: const TextStyle(color: kDim),
-                    filled: true,
-                    fillColor: kSurface,
-                    prefixIcon:
-                        const Icon(Icons.person_outline, color: kDim, size: 20),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: kBorder)),
-                    focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                            const BorderSide(color: kAccent, width: 1.5)),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
-                  ),
-                  style: const TextStyle(fontSize: 16, color: kText),
-                ),
-                const Spacer(),
-                DharmaBtn(
-                  label: 'Continue →',
-                  onTap: () => widget.state.nextOnboardingStep(3),
-                ),
-              ],
+            DharmaBtn(
+              label: 'Continue →',
+              onTap: _saveStyle,
             ),
-          ),
+          ],
         ),
-      );
+      ),
+    ),
+  );
 
-  // ── Step 3: Birth Details ─────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 3: Birth details (kundli)
+  // ─────────────────────────────────────────────────────────────────────────
   Widget _step3() {
     final allFilled = _selectedDate != null &&
         _selectedTime != null &&
@@ -382,7 +450,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Header row with skip ───────────────────────────
+              // ── Header row with back + skip ──────────────────────────────
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -391,15 +459,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     GestureDetector(
                       onTap: _skip,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                         decoration: BoxDecoration(
                           color: kSurface,
                           borderRadius: BorderRadius.circular(100),
                           border: Border.all(color: kBorder),
                         ),
-                        child: const Text('Skip',
-                            style: TextStyle(fontSize: 13, color: kDim)),
+                        child: const Text('Skip', style: TextStyle(fontSize: 13, color: kDim)),
                       ),
                     ),
                 ],
@@ -407,14 +473,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               const SizedBox(height: 20),
 
               const Text('STEP 3 OF 3',
-                  style: TextStyle(
-                      fontSize: 11, color: kDim, letterSpacing: 1.5)),
+                  style: TextStyle(fontSize: 11, color: kDim, letterSpacing: 1.5)),
               const SizedBox(height: 6),
               const Text('Your Dharmic Profile',
-                  style: TextStyle(
-                      fontSize: 30,
-                      color: kText,
-                      fontWeight: FontWeight.w400)),
+                  style: TextStyle(fontSize: 30, color: kText, fontWeight: FontWeight.w400)),
               const SizedBox(height: 4),
               const Text(
                 'Birth details unlock personalised Vedic guidance. Completely private.',
@@ -422,86 +484,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
               const SizedBox(height: 28),
 
-              // ── Date of Birth ──────────────────────────────────
-              const Text('Date of Birth',
-                  style: TextStyle(
-                      fontSize: 12, color: kDim, letterSpacing: 0.5)),
+              // ── Date of Birth ─────────────────────────────────────────────
+              _fieldLabel('Date of Birth'),
               const SizedBox(height: 6),
               GestureDetector(
                 onTap: _isGenerating ? null : _pickDate,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: kSurface,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: _selectedDate != null ? kAccent : kBorder,
-                        width: _selectedDate != null ? 1.5 : 1),
-                  ),
-                  child: Row(children: [
-                    Icon(Icons.calendar_today_outlined,
-                        color: _selectedDate != null ? kAccent : kDim,
-                        size: 20),
-                    const SizedBox(width: 12),
-                    Text(
-                      _selectedDate == null ? 'Tap to select date' : _dobFormatted,
-                      style: TextStyle(
-                          fontSize: 15,
-                          color: _selectedDate == null ? kDim : kText),
-                    ),
-                    const Spacer(),
-                    if (_selectedDate != null)
-                      const Icon(Icons.check_circle_rounded,
-                          color: kAccent, size: 18),
-                  ]),
+                child: _pickerTile(
+                  icon: Icons.calendar_today_outlined,
+                  text: _selectedDate == null ? 'Tap to select date' : _dobFormatted,
+                  filled: _selectedDate != null,
                 ),
               ),
               const SizedBox(height: 16),
 
-              // ── Time of Birth ──────────────────────────────────
-              const Text('Time of Birth',
-                  style: TextStyle(
-                      fontSize: 12, color: kDim, letterSpacing: 0.5)),
+              // ── Time of Birth ─────────────────────────────────────────────
+              _fieldLabel('Time of Birth'),
               const SizedBox(height: 6),
               GestureDetector(
                 onTap: _isGenerating ? null : _pickTime,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: kSurface,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: _selectedTime != null ? kAccent : kBorder,
-                        width: _selectedTime != null ? 1.5 : 1),
-                  ),
-                  child: Row(children: [
-                    Icon(Icons.schedule_outlined,
-                        color: _selectedTime != null ? kAccent : kDim,
-                        size: 20),
-                    const SizedBox(width: 12),
-                    Text(
-                      _selectedTime == null ? 'Tap to select time' : _timeFormatted,
-                      style: TextStyle(
-                          fontSize: 15,
-                          color: _selectedTime == null ? kDim : kText),
-                    ),
-                    const Spacer(),
-                    if (_selectedTime != null)
-                      const Icon(Icons.check_circle_rounded,
-                          color: kAccent, size: 18),
-                  ]),
+                child: _pickerTile(
+                  icon: Icons.schedule_outlined,
+                  text: _selectedTime == null ? 'Tap to select time' : _timeFormatted,
+                  filled: _selectedTime != null,
                 ),
               ),
               const SizedBox(height: 16),
 
-              // ── Place of Birth ─────────────────────────────────
-              const Text('Place of Birth',
-                  style: TextStyle(
-                      fontSize: 12, color: kDim, letterSpacing: 0.5)),
+              // ── Place of Birth ────────────────────────────────────────────
+              _fieldLabel('Place of Birth'),
               const SizedBox(height: 6),
               TextField(
                 controller: _placeController,
@@ -513,56 +523,51 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   hintStyle: const TextStyle(color: kDim),
                   filled: true,
                   fillColor: kSurface,
-                  prefixIcon: const Icon(Icons.location_on_outlined,
-                      color: kDim, size: 20),
+                  prefixIcon:
+                      const Icon(Icons.location_on_outlined, color: kDim, size: 20),
                   border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: kBorder)),
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: kBorder),
+                  ),
                   focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide:
-                          const BorderSide(color: kAccent, width: 1.5)),
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 14),
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: kAccent, width: 1.5),
+                  ),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 ),
                 style: const TextStyle(fontSize: 15, color: kText),
               ),
               const SizedBox(height: 16),
 
-              // ── Gender ─────────────────────────────────────────
-              const Text('Gender',
-                  style: TextStyle(
-                      fontSize: 12, color: kDim, letterSpacing: 0.5)),
+              // ── Gender ────────────────────────────────────────────────────
+              _fieldLabel('Gender'),
               const SizedBox(height: 6),
               Row(
                 children: ['Male', 'Female', 'Other'].map((g) {
-                  final selected = _gender == g;
+                  final sel = _gender == g;
                   return Expanded(
                     child: Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: GestureDetector(
-                        onTap: _isGenerating
-                            ? null
-                            : () => setState(() => _gender = g),
+                        onTap: _isGenerating ? null : () => setState(() => _gender = g),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 180),
-                          padding:
-                              const EdgeInsets.symmetric(vertical: 12),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
-                            color: selected
-                                ? const Color(0xFFFFF8ED)
-                                : kSurface,
+                            color: sel ? const Color(0xFFFFF8ED) : kSurface,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                                color: selected ? kAccent : kBorder,
-                                width: selected ? 1.5 : 1),
+                              color: sel ? kAccent : kBorder,
+                              width: sel ? 1.5 : 1,
+                            ),
                           ),
                           child: Center(
                             child: Text(g,
                                 style: TextStyle(
                                     fontSize: 13,
-                                    color: selected ? kAccent : kDim,
-                                    fontWeight: selected
+                                    color: sel ? kAccent : kDim,
+                                    fontWeight: sel
                                         ? FontWeight.w600
                                         : FontWeight.w400)),
                           ),
@@ -574,10 +579,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
               const SizedBox(height: 36),
 
-              // ── Loading ────────────────────────────────────────
+              // ── Loading indicator ─────────────────────────────────────────
               if (_isGenerating) ...[
-                const Center(
-                    child: CircularProgressIndicator(color: kAccent)),
+                const Center(child: CircularProgressIndicator(color: kAccent)),
                 const SizedBox(height: 16),
                 const Center(
                   child: Text(
@@ -593,14 +597,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 const SizedBox(height: 24),
               ],
 
-              // ── Illuminate button (only when all filled) ───────
+              // ── Illuminate button ─────────────────────────────────────────
               if (!_isGenerating && allFilled)
-                DharmaBtn(
-                  label: 'Illuminate My Path 🙏',
-                  onTap: _illuminate,
-                ),
+                DharmaBtn(label: 'Illuminate My Path 🙏', onTap: _illuminate),
 
-              // ── Hint when fields incomplete ────────────────────
+              // ── Incomplete hint ───────────────────────────────────────────
               if (!_isGenerating && !allFilled)
                 Container(
                   width: double.infinity,
@@ -613,8 +614,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   child: const Text(
                     'Fill in your date, time and place of birth above to unlock your personalised Vedic profile.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 13, color: kDim, height: 1.5),
+                    style: TextStyle(fontSize: 13, color: kDim, height: 1.5),
                   ),
                 ),
 
@@ -625,4 +625,41 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ),
     );
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Shared UI helpers
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Widget _fieldLabel(String text) => Text(
+        text,
+        style: const TextStyle(fontSize: 12, color: kDim, letterSpacing: 0.5),
+      );
+
+  Widget _pickerTile({
+    required IconData icon,
+    required String text,
+    required bool filled,
+  }) =>
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: kSurface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: filled ? kAccent : kBorder,
+            width: filled ? 1.5 : 1,
+          ),
+        ),
+        child: Row(children: [
+          Icon(icon, color: filled ? kAccent : kDim, size: 20),
+          const SizedBox(width: 12),
+          Text(text,
+              style: TextStyle(
+                  fontSize: 15, color: filled ? kText : kDim)),
+          const Spacer(),
+          if (filled)
+            const Icon(Icons.check_circle_rounded, color: kAccent, size: 18),
+        ]),
+      );
 }

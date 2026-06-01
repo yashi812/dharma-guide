@@ -1,12 +1,7 @@
 // lib/services/mantra_audio_service.dart
 //
-// Speaks mantra lines correctly for ALL mantras by trying multiple voices:
-//
-//   1. hi-IN  with Devanagari text  (best for Gayatri, most Vedic mantras)
-//   2. en-IN  with Roman text       (best for Om Namah Shivaya, Hare Krishna etc.)
-//   3. en-US  with Roman text       (universal fallback)
-//
-// Call playLine() with BOTH texts — the service picks what sounds best.
+// Pure male pandit voice — explicitly selects a male hi-IN voice
+// from the device's installed TTS voices.
 //
 // pubspec.yaml:
 //   flutter_tts: ^4.0.2
@@ -22,42 +17,116 @@ class MantraAudioService {
   final FlutterTts _tts = FlutterTts();
   bool _ready = false;
 
+  // ── Known male hi-IN voice names across devices/engines ───────────────────
+  // Google TTS installs these on most Android devices.
+  // We try each in order until one is found on the device.
+  static const _maleHindiVoices = [
+    'hi-in-x-hid-local',   // Google Hindi male (most common)
+    'hi-in-x-hia-local',   // Google Hindi male variant
+    'hi_IN_Male',           // Samsung TTS male
+    'hi-IN-Wavenet-B',      // Wavenet male (if installed)
+    'hi-IN-Wavenet-C',      // Wavenet male variant
+    'hi-IN-Standard-B',     // Standard male
+    'hi-IN-Standard-C',     // Standard male variant
+  ];
+
   // ── Init ───────────────────────────────────────────────────────────────────
 
   Future<void> _ensureReady() async {
     if (_ready) return;
     await _tts.setVolume(1.0);
-    await _tts.setPitch(0.88);
+    await _selectMaleVoice();
     _ready = true;
+  }
+
+  /// Scans installed voices and picks the best male hi-IN voice.
+  Future<void> _selectMaleVoice() async {
+    try {
+      final voices = await _tts.getVoices as List?;
+      if (voices == null || voices.isEmpty) return;
+
+      debugPrint('MantraAudioService: available voices:');
+      for (final v in voices) {
+        debugPrint('  → $v');
+      }
+
+      // Try preferred male Hindi voices first
+      for (final target in _maleHindiVoices) {
+        final match = voices.firstWhere(
+          (v) {
+            final name = (v['name'] as String? ?? '').toLowerCase();
+            return name.contains(target.toLowerCase());
+          },
+          orElse: () => null,
+        );
+        if (match != null) {
+          debugPrint('MantraAudioService: selected voice → ${match['name']}');
+          await _tts.setVoice({
+            'name': match['name'] as String,
+            'locale': match['locale'] as String? ?? 'hi-IN',
+          });
+          return;
+        }
+      }
+
+      // Fallback: any male hi-IN voice
+      final anyMaleHindi = voices.firstWhere(
+        (v) {
+          final name   = (v['name']   as String? ?? '').toLowerCase();
+          final locale = (v['locale'] as String? ?? '').toLowerCase();
+          return locale.contains('hi') &&
+              (name.contains('male') || name.contains('-b') || name.contains('-c'));
+        },
+        orElse: () => null,
+      );
+      if (anyMaleHindi != null) {
+        debugPrint('MantraAudioService: fallback male Hindi → ${anyMaleHindi['name']}');
+        await _tts.setVoice({
+          'name':   anyMaleHindi['name']   as String,
+          'locale': anyMaleHindi['locale'] as String? ?? 'hi-IN',
+        });
+        return;
+      }
+
+      // Last resort: just set language to hi-IN and hope for male default
+      debugPrint('MantraAudioService: no male Hindi voice found, using hi-IN default');
+      await _tts.setLanguage('hi-IN');
+    } catch (e) {
+      debugPrint('MantraAudioService._selectMaleVoice error: $e');
+      await _tts.setLanguage('hi-IN');
+    }
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
-  /// Speak a mantra line then call [onDone].
-  ///
-  /// [lineText]      — mantra.lines[i]  (Devanagari, e.g. "ॐ नमः शिवाय")
-  /// [romanText]     — mantra.tr[i]     (Roman,      e.g. "Om namah shivaya")
-  ///
-  /// The service tries hi-IN + Devanagari first, then en-IN + Roman.
-  /// Pass both so every mantra sounds correct.
   Future<void> playLine({
-    required String lineText,   // Devanagari
-    String? romanText,          // Roman transliteration — used as fallback voice
-    void Function()? onDone, required String devanagariText,
+    required String lineText,
+    required String devanagariText,
+    String? romanText,
+    void Function()? onDone,
   }) async {
     await stopAll();
     await _ensureReady();
 
-    // Try each voice strategy in order until one succeeds
-    final strategies = [
-      _Strategy(lang: 'hi-IN', text: lineText,              rate: kIsWeb ? 0.50 : 0.38),
-      _Strategy(lang: 'en-IN', text: romanText ?? lineText, rate: kIsWeb ? 0.52 : 0.40),
-      _Strategy(lang: 'en-US', text: romanText ?? lineText, rate: kIsWeb ? 0.55 : 0.42),
-    ];
+    // Clean text — no elongation tricks, pure Devanagari
+    final clean = _cleanDevanagari(lineText);
 
-    for (final s in strategies) {
-      final ok = await _trySpeak(s);
-      if (ok) break;
+    // Speak with male pandit settings
+    final spoke = await _trySpeak(_Strategy(
+      lang:  'hi-IN',
+      text:  clean,
+      rate:  kIsWeb ? 0.45 : 0.36,
+      pitch: 1.0,   // neutral pitch — let the male voice be naturally male
+    ));
+
+    // Fallback to Roman if Devanagari failed
+    if (!spoke) {
+      await _trySpeak(_Strategy(
+        lang:  'en-IN',
+        text:  romanText ?? lineText,
+        rate:  kIsWeb ? 0.48 : 0.38,
+        pitch: 1.0,
+      ));
     }
 
     onDone?.call();
@@ -69,15 +138,21 @@ class MantraAudioService {
 
   void dispose() => _tts.stop();
 
-  // ── Private ────────────────────────────────────────────────────────────────
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
-  /// Attempts to speak [s.text] with [s.lang].
-  /// Returns true if speech completed (or timed out naturally).
-  /// Returns false if TTS rejected the call immediately.
+  String _cleanDevanagari(String text) {
+    return text
+        .replaceAll('ओ३म्', 'ॐ')
+        .replaceAll('ऽ', '')
+        .replaceAll('\u202F', ' ')
+        .replaceAll(RegExp(r' +'), ' ')
+        .trim();
+  }
+
   Future<bool> _trySpeak(_Strategy s) async {
     try {
-      await _tts.setLanguage(s.lang);
       await _tts.setSpeechRate(s.rate);
+      await _tts.setPitch(s.pitch);
 
       final completer = Completer<void>();
       void finish() { if (!completer.isCompleted) completer.complete(); }
@@ -89,16 +164,16 @@ class MantraAudioService {
         finish();
       });
 
-      debugPrint('MantraAudioService: trying ${s.lang} → "${s.text}"');
+      debugPrint('MantraAudioService: speaking → "${s.text}"');
       final result = await _tts.speak(s.text);
 
       if (result != 1) {
-        debugPrint('MantraAudioService: ${s.lang} rejected (result=$result)');
+        debugPrint('MantraAudioService: speak() rejected (result=$result)');
         return false;
       }
 
       await completer.future.timeout(
-        const Duration(seconds: 30),
+        const Duration(seconds: 45),
         onTimeout: finish,
       );
       return true;
@@ -113,5 +188,11 @@ class _Strategy {
   final String lang;
   final String text;
   final double rate;
-  const _Strategy({required this.lang, required this.text, required this.rate});
+  final double pitch;
+  const _Strategy({
+    required this.lang,
+    required this.text,
+    required this.rate,
+    required this.pitch,
+  });
 }
