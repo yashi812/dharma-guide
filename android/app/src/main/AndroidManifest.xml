@@ -16,7 +16,7 @@
         android:maxSdkVersion="32"/>
 
     <application
-        android:label="dharma_guide"
+        android:label="DharmaGuide"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
