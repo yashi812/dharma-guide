@@ -479,8 +479,7 @@ class _BirthDetailsScreenState extends State<BirthDetailsScreen> {
                           borderRadius: BorderRadius.circular(100),
                           border: Border.all(color: kBorder),
                         ),
-                        child: const Text('Skip for now',
-                            style: TextStyle(fontSize: 13, color: kDim)),
+                        
                       ),
                     ),
                 ],

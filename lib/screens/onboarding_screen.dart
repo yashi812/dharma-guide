@@ -1,19 +1,18 @@
+// lib/screens/onboarding_screen.dart
+import 'dart:convert';
 import 'package:dharma_guide/constants/app_data.dart';
 import 'package:dharma_guide/state/app_state.dart';
 import 'package:dharma_guide/constants/theme.dart';
 import 'package:flutter/material.dart';
 import '../../shared_widgets.dart';
 import '../services/supabase_service.dart';
-import '../services/gemini_service.dart';
-import '../services/vedastro_service.dart';
+import '../screens/kundli_service.dart';
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Step indices
-// ═══════════════════════════════════════════════════════════════════════════
+// Steps:
 //   0 → Welcome splash
 //   1 → Name entry
 //   2 → Guidance style
-//   3 → Kundli / birth details  (optional — user can skip)
+//   3 → Birth details → generates KundliData via KundliService (skippable)
 
 class OnboardingScreen extends StatefulWidget {
   final AppState state;
@@ -24,17 +23,23 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  // ── Controllers ──────────────────────────────────────────────────────────
   final _nameController  = TextEditingController();
   final _placeController = TextEditingController();
 
-  // ── Birth-detail state ───────────────────────────────────────────────────
-  DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
-  String _gender = 'Male';
-
-  // ── Loading ───────────────────────────────────────────────────────────────
+  int? _selectedDay;
+int? _selectedMonth;
+int? _selectedYear;
+  String _gender    = 'Male';
+  String _timezone  = '+05:30';
   bool _isGenerating = false;
+
+  static const _timezones = [
+    '+05:30', '+00:00', '+01:00', '+02:00', '+03:00',
+    '+04:00', '+05:00', '+06:00', '+07:00', '+08:00',
+    '+09:00', '+09:30', '+10:00', '-05:00', '-06:00',
+    '-07:00', '-08:00',
+  ];
 
   @override
   void dispose() {
@@ -44,26 +49,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   // ── Pickers ───────────────────────────────────────────────────────────────
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate ?? DateTime(1995, 1, 1),
-      firstDate: DateTime(1920),
-      lastDate: DateTime.now(),
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.light(
-            primary: kAccent,
-            onPrimary: Colors.white,
-            onSurface: kText,
-            surface: kSurface,
-          ), dialogTheme: DialogThemeData(backgroundColor: kSurface),
-        ),
-        child: child!,
-      ),
-    );
-    if (picked != null) setState(() => _selectedDate = picked);
-  }
+  
 
   Future<void> _pickTime() async {
     final picked = await showTimePicker(
@@ -72,11 +58,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
           colorScheme: const ColorScheme.light(
-            primary: kAccent,
-            onPrimary: Colors.white,
-            onSurface: kText,
-            surface: kSurface,
-          ), dialogTheme: DialogThemeData(backgroundColor: kSurface),
+            primary: kAccent, onPrimary: Colors.white,
+            onSurface: kText, surface: kSurface,
+          ),
+          dialogTheme: const DialogThemeData(backgroundColor: kSurface),
         ),
         child: child!,
       ),
@@ -86,153 +71,99 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   // ── Format helpers ────────────────────────────────────────────────────────
   String get _dobFormatted {
-    if (_selectedDate == null) return '';
-    final d = _selectedDate!;
-    return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
-  }
+  if (_selectedDay == null || _selectedMonth == null || _selectedYear == null) return '';
+  return '${_selectedDay!.toString().padLeft(2,'0')}/'
+         '${_selectedMonth!.toString().padLeft(2,'0')}/'
+         '$_selectedYear';
+}
 
   String get _timeFormatted {
     if (_selectedTime == null) return '';
-    final h = _selectedTime!.hour.toString().padLeft(2, '0');
-    final m = _selectedTime!.minute.toString().padLeft(2, '0');
-    return '$h:$m';
+    return '${_selectedTime!.hour.toString().padLeft(2, '0')}:'
+           '${_selectedTime!.minute.toString().padLeft(2, '0')}';
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
   String get _resolvedName {
     final t = _nameController.text.trim();
     return t.isEmpty ? 'Seeker' : t;
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Step 1 → 2 transition: save name, advance
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Step transitions ──────────────────────────────────────────────────────
   Future<void> _saveName() async {
     await widget.state.setUserName(_resolvedName);
-    // Persist name to Supabase immediately so it's never lost
     await GuidanceService.saveUserInput(
-      screen: 'onboarding',
-      fieldName: 'birth_name',
-      value: _resolvedName,
+      screen: 'onboarding', fieldName: 'birth_name', value: _resolvedName,
     );
     if (mounted) widget.state.nextOnboardingStep(2);
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Step 2 → 3 transition: save style, advance
-  // ─────────────────────────────────────────────────────────────────────────
   Future<void> _saveStyle() async {
     await GuidanceService.saveUserInput(
-      screen: 'onboarding',
-      fieldName: 'guidance_style',
+      screen: 'onboarding', fieldName: 'guidance_style',
       value: widget.state.userStyle,
     );
     if (mounted) widget.state.nextOnboardingStep(3);
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Skip kundli — persist what we have and go home
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Skip kundli step ──────────────────────────────────────────────────────
   Future<void> _skip() async {
-    // Make sure name + style are persisted even if user never hit "Continue"
     await Future.wait([
       widget.state.setUserName(_resolvedName),
-      widget.state.completeOnboarding(), // ← add this
+      widget.state.completeOnboarding(),
       GuidanceService.upsertUserProfile(
         name: _resolvedName,
         guidanceStyle: widget.state.userStyle,
-        birthDate: '',
-        birthTime: '',
-        birthPlace: '',
-        birthGender: '',
+        birthDate: '', birthTime: '', birthPlace: '', birthGender: '',
       ),
     ]);
     if (mounted) widget.state.nav('home');
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Illuminate — generate kundli profile, save everything, go home
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Generate full KundliData and finish onboarding ────────────────────────
   Future<void> _illuminate() async {
     final name  = _resolvedName;
     final place = _placeController.text.trim();
     final dob   = _dobFormatted;
     final time  = _timeFormatted;
 
-    await widget.state.setUserName(name);
+    if (dob.isEmpty || time.isEmpty || place.isEmpty) return;
+
     setState(() => _isGenerating = true);
 
     try {
+      // Persist birth details to AppState + Supabase first
       await widget.state.setBirthDetails(
-        name:   name,
-        date:   dob,
-        time:   time,
-        place:  place,
-        gender: _gender,
+        name: name, date: dob, time: time, place: place, gender: _gender,
       );
 
-      // Persist all fields to Supabase in parallel
+      // Generate full structured KundliData via VedAstro (direct HTTP)
+      final kundli = await KundliService.generateKundli(
+        name:     name,
+        date:     dob,
+        time:     time,
+        location: place,
+        timezone: _timezone,
+      );
+
+      // Store serialised KundliData in AppState + Supabase
+      await widget.state.setKundliData(jsonEncode(kundli.toJson()));
+
+      // Persist all raw fields for audit / re-generation
       await Future.wait([
-        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_name',     value: name),
-        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_date',     value: dob),
-        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_time',     value: time),
-        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_place',    value: place),
-        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_gender',   value: _gender),
-        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'guidance_style', value: widget.state.userStyle),
+        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_name',   value: name),
+        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_date',   value: dob),
+        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_time',   value: time),
+        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_place',  value: place),
+        GuidanceService.saveUserInput(screen: 'onboarding', fieldName: 'birth_gender', value: _gender),
         GuidanceService.upsertUserProfile(
-          name:          name,
-          guidanceStyle: widget.state.userStyle,
-          birthDate:     dob,
-          birthTime:     time,
-          birthPlace:    place,
-          birthGender:   _gender,
+          name: name, guidanceStyle: widget.state.userStyle,
+          birthDate: dob, birthTime: time, birthPlace: place, birthGender: _gender,
         ),
       ]);
-
-      // Fetch VedAstro predictions
-      String vedastroRaw = '';
-      try {
-        vedastroRaw = await VedAstroService.getRichPredictions(
-          location: place, time: time, date: dob, maxPerCategory: 4,
-        );
-      } catch (e) {
-        debugPrint('VedAstro error (continuing): $e');
-      }
-
-      // Build kundli prompt
-      final sb = StringBuffer(
-        'You are an expert Vedic astrologer. '
-        'Birth details: Name = $name, Gender = $_gender, '
-        'DOB = $dob, Time = $time, Place = $place. ',
-      );
-      if (vedastroRaw.isNotEmpty) {
-        sb.write('VedAstro calculations:\n$vedastroRaw\n\nUsing these as primary source, ');
-      }
-      sb.write(
-        'Write a comprehensive astrological profile covering: '
-        '(a) Core personality & temperament, '
-        '(b) Key strengths the soul possesses, '
-        '(c) Karmic challenges to overcome, '
-        '(d) Life-path themes (career, relationships, spirituality), '
-        '(e) Periods of significant transformation. '
-        'Be specific, insightful, and use astrological language. '
-        'Return ONLY the profile text — no headings, no preamble.',
-      );
-
-      final kundli = await aiCall(
-        'You are an expert Vedic astrologer producing private astrological profiles.',
-        sb.toString(),
-        tokens: 700,
-      );
-
-      if (kundli != null && kundli.isNotEmpty) {
-        await widget.state.setKundliData(kundli);
-        await GuidanceService.saveUserInput(
-          screen: 'onboarding', fieldName: 'kundli_profile', value: kundli,
-        );
-      }
     } catch (e) {
       debugPrint('Onboarding kundli error: $e');
+      // Non-fatal: birth details are already saved; kundli can be generated later
+      // from guidance screen's "Show Kundli" pill
     }
 
     if (mounted) {
@@ -255,9 +186,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Step 0: Welcome splash
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Step 0: Welcome ───────────────────────────────────────────────────────
   Widget _step0() => Scaffold(
     backgroundColor: kBg,
     body: SafeArea(
@@ -299,9 +228,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     ),
   );
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Step 1: Enter name
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Step 1: Name ──────────────────────────────────────────────────────────
   Widget _step1() => Scaffold(
     backgroundColor: kBg,
     body: SafeArea(
@@ -345,19 +272,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               style: const TextStyle(fontSize: 16, color: kText),
             ),
             const Spacer(),
-            DharmaBtn(
-              label: 'Continue →',
-              onTap: _saveName,
-            ),
+            DharmaBtn(label: 'Continue →', onTap: _saveName),
           ],
         ),
       ),
     ),
   );
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Step 2: Choose guidance style
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Step 2: Guidance style ────────────────────────────────────────────────
   Widget _step2() => Scaffold(
     backgroundColor: kBg,
     body: SafeArea(
@@ -395,8 +317,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withOpacity(0.04),
-                            blurRadius: 12,
-                            offset: const Offset(0, 2),
+                            blurRadius: 12, offset: const Offset(0, 2),
                           ),
                         ],
                       ),
@@ -417,30 +338,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           ),
                         ),
                         if (selected)
-                          const Text('✓', style: TextStyle(color: kAccent, fontSize: 18)),
+                          const Text('✓',
+                              style: TextStyle(color: kAccent, fontSize: 18)),
                       ]),
                     ),
                   );
                 }).toList(),
               ),
             ),
-            DharmaBtn(
-              label: 'Continue →',
-              onTap: _saveStyle,
-            ),
+            DharmaBtn(label: 'Continue →', onTap: _saveStyle),
           ],
         ),
       ),
     ),
   );
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Step 3: Birth details (kundli)
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Step 3: Birth details ─────────────────────────────────────────────────
   Widget _step3() {
-    final allFilled = _selectedDate != null &&
-        _selectedTime != null &&
-        _placeController.text.trim().isNotEmpty;
+    final allFilled = _selectedDay != null &&
+    _selectedMonth != null &&
+    _selectedYear != null &&
+    _selectedTime != null &&
+    _placeController.text.trim().isNotEmpty;
 
     return Scaffold(
       backgroundColor: kBg,
@@ -450,7 +369,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Header row with back + skip ──────────────────────────────
+              // Header row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -459,13 +378,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     GestureDetector(
                       onTap: _skip,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 6),
                         decoration: BoxDecoration(
                           color: kSurface,
                           borderRadius: BorderRadius.circular(100),
                           border: Border.all(color: kBorder),
                         ),
-                        child: const Text('Skip', style: TextStyle(fontSize: 13, color: kDim)),
+                        child: const Text('Skip',
+                            style: TextStyle(fontSize: 13, color: kDim)),
                       ),
                     ),
                 ],
@@ -475,43 +396,43 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               const Text('STEP 3 OF 3',
                   style: TextStyle(fontSize: 11, color: kDim, letterSpacing: 1.5)),
               const SizedBox(height: 6),
-              const Text('Your Dharmic Profile',
-                  style: TextStyle(fontSize: 30, color: kText, fontWeight: FontWeight.w400)),
+              const Text('Your Birth Chart',
+                  style: TextStyle(fontSize: 30, color: kText,
+                      fontWeight: FontWeight.w400)),
               const SizedBox(height: 4),
               const Text(
-                'Birth details unlock personalised Vedic guidance. Completely private.',
+                'Unlock personalised Vedic guidance. Completely private.',
                 style: TextStyle(fontSize: 13, color: kDim, height: 1.5),
               ),
               const SizedBox(height: 28),
 
-              // ── Date of Birth ─────────────────────────────────────────────
-              _fieldLabel('Date of Birth'),
-              const SizedBox(height: 6),
-              GestureDetector(
-                onTap: _isGenerating ? null : _pickDate,
-                child: _pickerTile(
-                  icon: Icons.calendar_today_outlined,
-                  text: _selectedDate == null ? 'Tap to select date' : _dobFormatted,
-                  filled: _selectedDate != null,
-                ),
-              ),
-              const SizedBox(height: 16),
+              // ── Date + Time row ─────────────────────────────────────────
+              // ── Date ────────────────────────────────────────────────────────────
+_fieldLabel('Date of Birth'),
+const SizedBox(height: 6),
+Row(children: [
+  _numDropdown('DD', List.generate(31, (i) => i + 1), _selectedDay,
+    (v) => setState(() => _selectedDay = v)),
+  const SizedBox(width: 6),
+  _monthDropdown(),
+  const SizedBox(width: 6),
+  _yearDropdown(),
+]),
+const SizedBox(height: 16),
 
-              // ── Time of Birth ─────────────────────────────────────────────
-              _fieldLabel('Time of Birth'),
-              const SizedBox(height: 6),
-              GestureDetector(
-                onTap: _isGenerating ? null : _pickTime,
-                child: _pickerTile(
-                  icon: Icons.schedule_outlined,
-                  text: _selectedTime == null ? 'Tap to select time' : _timeFormatted,
-                  filled: _selectedTime != null,
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              // ── Place of Birth ────────────────────────────────────────────
-              _fieldLabel('Place of Birth'),
+// ── Time ─────────────────────────────────────────────────────────────
+_fieldLabel('Time of Birth'),
+const SizedBox(height: 6),
+GestureDetector(
+  onTap: _isGenerating ? null : _pickTime,
+  child: _pickerTile(
+    icon: Icons.access_time_rounded,
+    text: _selectedTime == null ? 'Select time' : _timeFormatted,
+    filled: _selectedTime != null,
+  ),
+),
+              // ── Place ───────────────────────────────────────────────────
+              _fieldLabel('Birth City'),
               const SizedBox(height: 6),
               TextField(
                 controller: _placeController,
@@ -519,28 +440,61 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 enabled: !_isGenerating,
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
-                  hintText: 'City (e.g. Mumbai)',
+                  hintText: 'e.g. Mumbai, Raipur, London',
                   hintStyle: const TextStyle(color: kDim),
                   filled: true,
                   fillColor: kSurface,
-                  prefixIcon:
-                      const Icon(Icons.location_on_outlined, color: kDim, size: 20),
+                  prefixIcon: const Icon(
+                      Icons.location_on_outlined, color: kDim, size: 20),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(color: kBorder),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: kAccent, width: 1.5),
+                    borderSide:
+                        const BorderSide(color: kAccent, width: 1.5),
                   ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 14),
                 ),
                 style: const TextStyle(fontSize: 15, color: kText),
               ),
               const SizedBox(height: 16),
 
-              // ── Gender ────────────────────────────────────────────────────
+              // ── Timezone ────────────────────────────────────────────────
+              _fieldLabel('Timezone'),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 4),
+                decoration: BoxDecoration(
+                  color: kSurface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: kBorder),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _timezone,
+                    isExpanded: true,
+                    style:
+                        const TextStyle(color: kText, fontSize: 14),
+                    items: _timezones
+                        .map((tz) => DropdownMenuItem(
+                              value: tz,
+                              child: Text('UTC $tz'),
+                            ))
+                        .toList(),
+                    onChanged: _isGenerating
+                        ? null
+                        : (v) =>
+                            setState(() => _timezone = v ?? '+05:30'),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // ── Gender ──────────────────────────────────────────────────
               _fieldLabel('Gender'),
               const SizedBox(height: 6),
               Row(
@@ -550,12 +504,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     child: Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: GestureDetector(
-                        onTap: _isGenerating ? null : () => setState(() => _gender = g),
+                        onTap: _isGenerating
+                            ? null
+                            : () => setState(() => _gender = g),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 180),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          padding:
+                              const EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
-                            color: sel ? const Color(0xFFFFF8ED) : kSurface,
+                            color: sel
+                                ? const Color(0xFFFFF8ED) : kSurface,
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: sel ? kAccent : kBorder,
@@ -579,9 +537,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               ),
               const SizedBox(height: 36),
 
-              // ── Loading indicator ─────────────────────────────────────────
+              // ── Loading ─────────────────────────────────────────────────
               if (_isGenerating) ...[
-                const Center(child: CircularProgressIndicator(color: kAccent)),
+                const Center(
+                    child: CircularProgressIndicator(color: kAccent)),
                 const SizedBox(height: 16),
                 const Center(
                   child: Text(
@@ -597,11 +556,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 const SizedBox(height: 24),
               ],
 
-              // ── Illuminate button ─────────────────────────────────────────
+              // ── CTA ─────────────────────────────────────────────────────
               if (!_isGenerating && allFilled)
-                DharmaBtn(label: 'Illuminate My Path 🙏', onTap: _illuminate),
+                DharmaBtn(
+                    label: 'Illuminate My Path 🙏',
+                    onTap: _illuminate),
 
-              // ── Incomplete hint ───────────────────────────────────────────
               if (!_isGenerating && !allFilled)
                 Container(
                   width: double.infinity,
@@ -614,11 +574,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   child: const Text(
                     'Fill in your date, time and place of birth above to unlock your personalised Vedic profile.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: kDim, height: 1.5),
+                    style: TextStyle(
+                        fontSize: 13, color: kDim, height: 1.5),
                   ),
                 ),
 
               const SizedBox(height: 24),
+              const Text(
+                'Calculated using Vedic (Sidereal) astrology · RAMAN ayanamsa',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: kDim),
+              ),
             ],
           ),
         ),
@@ -626,13 +592,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Shared UI helpers
-  // ─────────────────────────────────────────────────────────────────────────
-
   Widget _fieldLabel(String text) => Text(
         text,
-        style: const TextStyle(fontSize: 12, color: kDim, letterSpacing: 0.5),
+        style: const TextStyle(
+            fontSize: 12, color: kDim, letterSpacing: 0.5),
       );
 
   Widget _pickerTile({
@@ -642,7 +605,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }) =>
       Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
           color: kSurface,
           borderRadius: BorderRadius.circular(12),
@@ -656,10 +620,99 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           const SizedBox(width: 12),
           Text(text,
               style: TextStyle(
-                  fontSize: 15, color: filled ? kText : kDim)),
+                  fontSize: 15,
+                  color: filled ? kText : kDim)),
           const Spacer(),
           if (filled)
-            const Icon(Icons.check_circle_rounded, color: kAccent, size: 18),
+            const Icon(Icons.check_circle_rounded,
+                color: kAccent, size: 18),
         ]),
       );
+
+      static const _months = [
+  'Jan','Feb','Mar','Apr','May','Jun',
+  'Jul','Aug','Sep','Oct','Nov','Dec'
+];
+
+Widget _numDropdown(String hint, List<int> items, int? value, ValueChanged<int?> onChanged) =>
+  Expanded(
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: kSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: value != null ? kAccent : kBorder,
+          width: value != null ? 1.5 : 1,
+        ),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: value,
+          hint: Text(hint, style: const TextStyle(color: kDim, fontSize: 13)),
+          isExpanded: true,
+          style: const TextStyle(color: kText, fontSize: 14),
+          items: items.map((n) =>
+            DropdownMenuItem(value: n, child: Text(n.toString()))).toList(),
+          onChanged: _isGenerating ? null : onChanged,
+        ),
+      ),
+    ),
+  );
+
+Widget _monthDropdown() =>
+  Expanded(
+    flex: 2,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: kSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: _selectedMonth != null ? kAccent : kBorder,
+          width: _selectedMonth != null ? 1.5 : 1,
+        ),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: _selectedMonth,
+          hint: const Text('Mon', style: TextStyle(color: kDim, fontSize: 13)),
+          isExpanded: true,
+          style: const TextStyle(color: kText, fontSize: 14),
+          items: List.generate(12, (i) =>
+            DropdownMenuItem(value: i + 1, child: Text(_months[i]))).toList(),
+          onChanged: _isGenerating ? null :
+            (v) => setState(() => _selectedMonth = v),
+        ),
+      ),
+    ),
+  );
+
+Widget _yearDropdown() =>
+  Expanded(
+    flex: 2,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: kSurface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: _selectedYear != null ? kAccent : kBorder,
+          width: _selectedYear != null ? 1.5 : 1,
+        ),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: _selectedYear,
+          hint: const Text('Year', style: TextStyle(color: kDim, fontSize: 13)),
+          isExpanded: true,
+          style: const TextStyle(color: kText, fontSize: 14),
+          items: List.generate(105, (i) => DateTime.now().year - i).map((y) =>
+            DropdownMenuItem(value: y, child: Text(y.toString()))).toList(),
+          onChanged: _isGenerating ? null :
+            (v) => setState(() => _selectedYear = v),
+        ),
+      ),
+    ),
+  );
 }
