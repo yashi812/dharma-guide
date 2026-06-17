@@ -241,14 +241,13 @@ List<dynamic> _toList(dynamic p) {
 String _buildTimePath({
   required double lat,
   required double lng,
-  required String time,      // HH:MM
-  required String date,      // DD/MM/YYYY
-  required String timezone,  // +05:30
+  required String time,
+  required String date,     // DD/MM/YYYY
+  required String timezone,
 }) {
-  // DD/MM/YYYY → DD-MM-YYYY (just swap separator, no digit reordering)
-  final dashDate = date.replaceAll('/', '-');
+  // Keep DD/MM/YYYY as slashes — VedAstro uses them as path segments
   final encTz = timezone.replaceAll('+', '%2B');
-  return 'Location/$lat,$lng/Time/$time/$dashDate/$encTz/Ayanamsa/RAMAN';
+  return 'Location/$lat,$lng/Time/$time/$date/$encTz/Ayanamsa/RAMAN';
 }
 
 // ── GET with timeout ───────────────────────────────────────────────────────────
@@ -311,6 +310,7 @@ Future<PlanetData?> _fetchOnePlanet(String planetName, String timePath) async {
     debugPrint('Planet fetch error ($planetName): $e');
     return null;
   }
+  debugPrint('Fetching $planetName: $_kVedAstroBase/Calculate/AllPlanetData/PlanetName/$planetName/$timePath');
 }
 
 // ── Parse AllHouseData payload ────────────────────────────────────────────────
@@ -405,6 +405,8 @@ class KundliService {
     'Venus', 'Saturn', 'Rahu', 'Ketu', 'Ascendant',
   ];
 
+// right before final allResults = await Future.wait([...
+debugPrint('KUNDLI REQUEST: name=$name date=$date time=$time loc=$location -> timePath=$timePath, geo=${geo.lat},${geo.lng}, resolved=${geo.resolvedName}');
   final allResults = await Future.wait([
     ...planetNames.map((n) => _fetchOnePlanet(n, timePath)),
     _vedAstroGet('Calculate/AllHouseData/$timePath')

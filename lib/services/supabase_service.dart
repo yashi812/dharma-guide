@@ -485,16 +485,19 @@ class ManifestationService {
   static const _table = 'manifestation_journals';
 
   static Future<void> saveEntry({
-    required String techniqueName,
-    required String journalText,
-  }) async {
-    await _db.from(_table).insert({
-      'user_id': _uid,
-      'technique_name': techniqueName,
-      'journal_text': journalText,
-      'journaled_on': DateTime.now().toIso8601String().substring(0, 10),
-    });
+  required String techniqueName,
+  required String journalText,
+}) async {
+  if (_uid == null) {
+    throw StateError('No authenticated user — cannot save manifestation entry.');
   }
+  await _db.from(_table).insert({
+    'user_id': _uid,
+    'technique_name': techniqueName,
+    'journal_text': journalText,
+    'journaled_on': DateTime.now().toIso8601String().substring(0, 10),
+  });
+}
 
   static Future<List<Map<String, dynamic>>> fetchHistory({
     int limit = 30,
@@ -511,6 +514,7 @@ class ManifestationService {
     String techniqueName, {
     int limit = 30,
   }) async {
+    if (_uid == null) return [];
     return await _db
         .from(_table)
         .select()
@@ -518,5 +522,53 @@ class ManifestationService {
         .eq('technique_name', techniqueName)
         .order('journaled_on', ascending: false)
         .limit(limit);
+  }
+  // lib/services/manifestation_service.dart (add this method)
+
+  /// Calls the `generate-manifestation-visualization` edge function to
+  /// produce an AI image for the given intention, store it, and return
+  /// its public URL.
+  static Future<ManifestationVisualization> generateVisualization({
+    required String intentionText,
+    required String techniqueName,
+    String? entryId,
+  }) async {
+    final response = await _db.functions.invoke(
+      'generate-manifestation-visualization',
+      body: {
+        'intentionText': intentionText,
+        'techniqueName': techniqueName,
+        if (entryId != null) 'entryId': entryId,
+      },
+    );
+
+    if (response.status != 200) {
+      final err = response.data is Map ? response.data['error'] : response.data;
+      throw Exception('Visualization generation failed: $err');
+    }
+
+    return ManifestationVisualization.fromJson(
+      response.data as Map<String, dynamic>,
+    );
+  }
+}
+
+class ManifestationVisualization {
+  final String imageUrl;
+  final String? visualizationId;
+  final String prompt;
+
+  ManifestationVisualization({
+    required this.imageUrl,
+    required this.visualizationId,
+    required this.prompt,
+  });
+
+  factory ManifestationVisualization.fromJson(Map<String, dynamic> json) {
+    return ManifestationVisualization(
+      imageUrl: json['imageUrl'] as String,
+      visualizationId: json['visualizationId'] as String?,
+      prompt: json['prompt'] as String,
+    );
   }
 }

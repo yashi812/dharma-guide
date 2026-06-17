@@ -23,7 +23,6 @@ import '../../models/models.dart';
 import '../state/app_state.dart';
 import '../../shared_widgets.dart';
 import '../../services/supabase_service.dart';
-import 'gita_pdf_service.dart';
 import 'kundli_sheet.dart';
 import 'kundli_service.dart';
 
@@ -53,12 +52,6 @@ class _GuidanceScreenState extends State<GuidanceScreen>
   final List<_ChatMessage> _messages = [];
   bool _loading = false;
 
-  // PDF state
-  bool _pdfLoaded = false;
-  String? _pdfFilename;
-  String? _pdfText;
-  bool _pdfParsing = false;
-
   // ── Kundli state ────────────────────────────────────────────────────────────
   KundliData? _kundliData;
 
@@ -80,19 +73,63 @@ class _GuidanceScreenState extends State<GuidanceScreen>
   @override
   void initState() {
     super.initState();
-    _loadStoredPdf();
     _speech = stt.SpeechToText();
     _initSpeech();
+     _loadExistingKundli();   // ← NEW
+
 
     _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    )..repeat(reverse: true);
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.5).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
-    _pulseController.stop();
+    vsync: this,
+    duration: const Duration(milliseconds: 600),
+  )..repeat(reverse: true);
+  _pulseAnimation = Tween<double>(begin: 1.0, end: 1.5).animate(
+    CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+  );
+  _pulseController.stop();
+}
+
+// ── Load Kundli saved during onboarding (or generate if missing) ────────────
+Future<void> _loadExistingKundli() async {
+  final s = widget.state;
+  final stored = s.kundliData;
+
+  // Case 1: already have structured/serialised KundliData saved
+  if (stored != null) {
+    try {
+      if (stored is KundliData) {
+        if (mounted) setState(() => _kundliData = stored as KundliData?);
+        return;
+      }
+      if (stored is String && stored.trim().isNotEmpty) {
+        final json = jsonDecode(stored) as Map<String, dynamic>;
+        final kundli = KundliData.fromJson(json);
+        if (mounted) setState(() => _kundliData = kundli);
+        return;
+      }
+    } catch (e) {
+      debugPrint('Failed to parse stored kundli: $e');
+      // fall through to regenerate from raw birth details
+    }
   }
+
+  // Case 2: no structured kundli, but onboarding saved raw birth details →
+  // generate silently in the background, no form needed
+  if (s.birthName != null &&
+      s.birthDate != null &&
+      s.birthTime != null &&
+      s.birthPlace != null &&
+      s.birthDate!.isNotEmpty &&
+      s.birthTime!.isNotEmpty &&
+      s.birthPlace!.isNotEmpty) {
+    await _generateKundliSilently(
+      name: s.birthName!,
+      date: s.birthDate!,
+      time: s.birthTime!,
+      place: s.birthPlace!,
+    );
+  }
+  // Case 3: nothing on file — pill stays "Show Kundli", user fills form as before
+} 
 
   Future<void> _initSpeech() async {
     _speechAvailable = await _speech.initialize(
@@ -168,70 +205,142 @@ KundliInitialValues _extractBirthDetails() {
       }
     }
   }
-
-  // ── Time ──────────────────────────────────────────────────────
-  // Matches: "10:30 AM"  "22:15"  "10:30am"  "10 AM"
+  // ── Time ─────────────────────────────────────────────────
   TimeOfDay? time;
-  final timeMatch = RegExp(
-    r'\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b',
-    caseSensitive: false,
-  ).firstMatch(userText);
+  String? timezone;
+
+  // Matches: HH:MM or HH:MM am/pm
+  final timeMatch = RegExp(r"\b(\d{1,2}):(\d{2})(?:\s*(am|pm))?\b", caseSensitive: false)
+      .firstMatch(userText);
   if (timeMatch != null) {
-    var hour   = int.tryParse(timeMatch.group(1)!) ?? -1;
-    final min  = int.tryParse(timeMatch.group(2) ?? '0') ?? 0;
-    final ampm = timeMatch.group(3)?.toLowerCase();
-    if (hour >= 0 && hour <= 23 && min >= 0 && min <= 59) {
-      if (ampm == 'pm' && hour < 12) hour += 12;
-      if (ampm == 'am' && hour == 12) hour = 0;
-      time = TimeOfDay(hour: hour, minute: min);
+    var h = int.tryParse(timeMatch.group(1) ?? '') ?? 12;
+    final m = int.tryParse(timeMatch.group(2) ?? '') ?? 0;
+    final ampm = timeMatch.group(3);
+    if (ampm != null) {
+      final a = ampm.toLowerCase();
+      if (a == 'pm' && h < 12) h += 12;
+      if (a == 'am' && h == 12) h = 0;
+    }
+    time = TimeOfDay(hour: h % 24, minute: m.clamp(0, 59));
+  } else {
+    // Matches: "8 pm", "9am"
+    final shortMatch = RegExp(r"\b(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)\b", caseSensitive: false)
+        .firstMatch(userText);
+    if (shortMatch != null) {
+      var h = int.tryParse(shortMatch.group(1) ?? '') ?? 12;
+      final m = int.tryParse(shortMatch.group(2) ?? '') ?? 0;
+      final a = (shortMatch.group(3) ?? '').toLowerCase();
+      if (a == 'pm' && h < 12) h += 12;
+      if (a == 'am' && h == 12) h = 0;
+      time = TimeOfDay(hour: h % 24, minute: m.clamp(0, 59));
     }
   }
 
-  // ── Location ──────────────────────────────────────────────────
-  // Matches: "born in Mumbai"  "from New Delhi"  "in Bangalore"
+  // ── Location ─────────────────────────────────────────────────
   String? location;
-  final locMatch = RegExp(
-    r'(?:born in|from|in|place[:\s]+|city[:\s]+|location[:\s]+)'
-    r'\s+([A-Za-z][A-Za-z\s,]{2,30})',
-    caseSensitive: false,
-  ).firstMatch(userText);
-  if (locMatch != null) {
-    // trim trailing noise words
-    location = locMatch.group(1)
-        ?.trim()
-        .replaceAll(RegExp(r'\s+(and|on|at|the|a|an).*$', caseSensitive: false), '');
-  }
+  final locMatch = RegExp(r"\b(?:in|at|born in|from)\s+([A-Za-z][A-Za-z0-9\s,.-]{2,60})",
+          caseSensitive: false)
+      .firstMatch(userText);
+  if (locMatch != null) location = locMatch.group(1)?.trim();
 
   return KundliInitialValues(
-    name: name?.isEmpty == true ? null : name,
+    name: name,
+    location: location,
     date: date,
     time: time,
-    location: location?.isEmpty == true ? null : location,
   );
 }
 
-  // ── Kundli sheet ─────────────────────────────────────────────────────────
-  // AFTER
- Future<void> _showKundliSheet() async {
+  Future<void> _showKundliSheet() async {
   final s = widget.state;
 
-  // If chart already loaded → show it directly
+  // ── Case 1: Chart already loaded → View or New choice ─────────────────────
   if (_kundliData != null) {
-    await KundliSheet.showChart(context, _kundliData!);
-    return;
-  }
-
-  if (s.hasBirthDetails) {
-    await _generateKundliSilently(
-      name:  s.birthName ?? s.userName,
-      date:  s.birthDate!,
-      time:  s.birthTime!,
-      place: s.birthPlace!,
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          color: kSurface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: kBorder, borderRadius: BorderRadius.circular(100),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text('Birth Chart',
+                style: TextStyle(fontSize: 18, color: kText, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text(
+              '${_kundliData!.name} · ${_kundliData!.date} · ${_kundliData!.location}',
+              style: const TextStyle(fontSize: 12, color: kDim),
+            ),
+            const SizedBox(height: 20),
+            GestureDetector(
+              onTap: () => Navigator.of(context).pop('view'),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [kAccent, kRust]),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Center(
+                  child: Text('View Current Chart',
+                      style: TextStyle(color: Colors.white, fontSize: 15,
+                          fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: () => Navigator.of(context).pop('new'),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(
+                  color: kAlt,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: kBorder),
+                ),
+                child: const Center(
+                  child: Text('Generate New Chart',
+                      style: TextStyle(color: kText, fontSize: 15,
+                          fontWeight: FontWeight.w500)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
-    return;
+
+    if (!mounted) return;
+    if (choice == 'view') {
+      await KundliSheet.showChart(context, _kundliData!);
+      return;
+    } else if (choice != 'new') {
+      return; // dismissed
+    }
+
+    // 'new' chosen — wipe the old chart NOW before opening the form
+    setState(() => _kundliData = null);
   }
 
-  final kundli = await KundliSheet.show(context);
+  // ── Case 2: Show blank input form ─────────────────────────────────────────
+  // Never pre-fill here — if _kundliData was just cleared it means "new",
+  // and if this is first time there's nothing to pre-fill from anyway.
+  final kundli = await KundliSheet.show(context, initialValues: null);
   if (kundli == null || !mounted) return;
 
   await s.setBirthDetails(
@@ -543,41 +652,7 @@ KundliInitialValues _extractBirthDetails() {
     if (!kIsWeb) _speech.statusListener = null;
   }
 
-  // ── PDF helpers ────────────────────────────────────────────────────────────
-  Future<void> _loadStoredPdf() async {
-    final loaded = await GitaPdfService.isPdfLoaded();
-    if (loaded) {
-      final text     = await GitaPdfService.getStoredText();
-      final filename = await GitaPdfService.getStoredFilename();
-      if (mounted) setState(() { _pdfLoaded = true; _pdfText = text; _pdfFilename = filename; });
-    }
-  }
-
-  Future<void> _uploadPdf() async {
-    setState(() => _pdfParsing = true);
-    final result = await GitaPdfService.pickAndParsePdf();
-    if (!mounted) return;
-    setState(() => _pdfParsing = false);
-    if (result.isSuccess) {
-      final text = await GitaPdfService.getStoredText();
-      setState(() { _pdfLoaded = true; _pdfText = text; _pdfFilename = result.filename; });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('✓ ${result.summaryText}'),
-        backgroundColor: kAccent, behavior: SnackBarBehavior.floating,
-      ));
-    } else if (result.isError) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(result.errorMessage ?? 'Failed to load PDF'),
-        backgroundColor: kRust, behavior: SnackBarBehavior.floating,
-      ));
-    }
-  }
-
-  Future<void> _replacePdf() async {
-    await GitaPdfService.clearStoredPdf();
-    setState(() { _pdfLoaded = false; _pdfText = null; _pdfFilename = null; });
-    await _uploadPdf();
-  }
+ 
 
   // ── Topic selection ────────────────────────────────────────────────────────
   Future<void> _pickTopic(Topic t) async {
@@ -935,70 +1010,8 @@ KundliInitialValues _extractBirthDetails() {
     );
   }
 
-  // ── PDF panel ──────────────────────────────────────────────────────────────
-  Widget _buildPdfPanel() {
-    if (_pdfLoaded) {
-      return Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: kAccent.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: kAccent.withValues(alpha: 0.18)),
-        ),
-        child: Row(children: [
-          const Text('📖', style: TextStyle(fontSize: 16)),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Bhagavad Gita loaded',
-                  style: TextStyle(fontSize: 12, color: kAccent, fontWeight: FontWeight.w500)),
-              Text(_pdfFilename ?? 'gita.pdf',
-                  style: const TextStyle(fontSize: 11, color: kDim),
-                  overflow: TextOverflow.ellipsis),
-            ]),
-          ),
-          GestureDetector(
-            onTap: _replacePdf,
-            child: const Text('Replace',
-                style: TextStyle(fontSize: 11, color: kDim, decoration: TextDecoration.underline)),
-          ),
-        ]),
-      );
-    }
-
-    return GestureDetector(
-      onTap: _pdfParsing ? null : _uploadPdf,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: kSurface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _pdfParsing ? kAccent.withValues(alpha: 0.4) : kBorder),
-        ),
-        child: Row(children: [
-          if (_pdfParsing)
-            const SizedBox(width: 16, height: 16,
-                child: CircularProgressIndicator(strokeWidth: 1.5, color: kAccent))
-          else
-            const Text('📄', style: TextStyle(fontSize: 18)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(_pdfParsing ? 'Reading the Gita…' : 'Upload Bhagavad Gita PDF',
-                  style: TextStyle(fontSize: 13,
-                      color: _pdfParsing ? kDim : kText, fontWeight: FontWeight.w500)),
-              Text(_pdfParsing ? 'Extracting wisdom…' : 'Tap to upload once — stored forever on your device',
-                  style: const TextStyle(fontSize: 11, color: kDim)),
-            ]),
-          ),
-          if (!_pdfParsing) const Text('›', style: TextStyle(color: kDim, fontSize: 18)),
-        ]),
-      ),
-    );
-  }
-
+  
+    
   // ── Topic list ─────────────────────────────────────────────────────────────
   Widget _buildTopicList() {
     return ListView(
@@ -1009,8 +1022,7 @@ KundliInitialValues _extractBirthDetails() {
         const Text('Wisdom from the Bhagavad Gita',
             style: TextStyle(fontSize: 13, color: kDim)),
         const SizedBox(height: 20),
-        _buildPdfPanel(),
-
+        
         if (widget.state.streak > 0)
           Padding(
             padding: const EdgeInsets.only(bottom: 14),
@@ -1088,7 +1100,7 @@ KundliInitialValues _extractBirthDetails() {
             const SizedBox(width: 8),
             Expanded(child: Text(_topic!.label,
                 style: const TextStyle(fontSize: 18, color: kText, fontWeight: FontWeight.w400))),
-            if (_pdfLoaded)
+           
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(

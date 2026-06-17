@@ -45,17 +45,58 @@ class _ManifestationAnimationScreenState
   late final Animation<double> _sealOpacity;
 
   // ── State ─────────────────────────────────────────────────────
-  bool _saving = false;
-  bool _saved  = false;
-  String _statusText = 'Setting your intention into the universe…';
+  late String _statusText;
 
   // Particle definitions (generated once)
   late final List<_Particle> _particles;
+
+  // ── Technique-aware helpers ───────────────────────────────────────────
+  String get _cardLabel {
+    final n = widget.techniqueName;
+    if (n.contains('3-6-9'))    return '✦  MY AFFIRMATION  ✦';
+    if (n.contains('5×55'))     return '✦  MY AFFIRMATION  ✦';
+    if (n.contains('Scripting')) return '✦  MY SCRIPT  ✦';
+    return '✦  MY INTENTION  ✦';
+  }
+
+  String get _sealingText {
+    final n = widget.techniqueName;
+    if (n.contains('3-6-9'))    return 'Sealing with Tesla\'s sacred numbers…';
+    if (n.contains('5×55'))     return 'Imprinting 55 times into the universe…';
+    if (n.contains('Scripting')) return 'Scripting your future into existence…';
+    return 'Sealing your intention…';
+  }
+
+  String get _savedText {
+    final n = widget.techniqueName;
+    if (n.contains('3-6-9'))    return 'Sealed with 3 · 6 · 9 ✨';
+    if (n.contains('5×55'))     return 'Sent to the universe ✍️';
+    if (n.contains('Scripting')) return 'Your future has been scripted 🌟';
+    return 'Your intention has been set ✨';
+  }
+
+  String get _sealEmoji {
+    final n = widget.techniqueName;
+    if (n.contains('3-6-9'))    return '🔢';
+    if (n.contains('5×55'))     return '✍️';
+    if (n.contains('Scripting')) return '🌟';
+    return '🙏';
+  }
+
+  String get _initialStatusText {
+    final n = widget.techniqueName;
+    if (n.contains('3-6-9'))    return 'Aligning with 3 · 6 · 9 energy…';
+    if (n.contains('5×55'))     return 'Charging your 55-fold intention…';
+    if (n.contains('Scripting')) return 'Entering your future timeline…';
+    return 'Setting your intention into the universe…';
+  }
 
   @override
   void initState() {
     super.initState();
 
+    // Must initialise _statusText after widget is available
+    _statusText = _initialStatusText;
     _particles = List.generate(18, (i) => _Particle(i));
 
     // Background breathe — loops
@@ -95,45 +136,56 @@ class _ManifestationAnimationScreenState
     _runSequence();
   }
 
-  Future<void> _runSequence() async {
-    // 1. Let background breathe for a beat
-    await Future.delayed(const Duration(milliseconds: 400));
+ Future<void> _runSequence() async {
+  // 1. Let background breathe for a beat
+  await Future.delayed(const Duration(milliseconds: 400));
 
-    // 2. Text rises
-    _textCtrl.forward();
-    await Future.delayed(const Duration(milliseconds: 1600));
+  // 2. Text rises
+  _textCtrl.forward();
+  await Future.delayed(const Duration(milliseconds: 1600));
 
-    // 3. Save in background
-    setState(() {
-      _saving = true;
-      _statusText = 'Sealing your intention…';
-    });
+  // 3. Save in background
+  setState(() => _statusText = _sealingText);
 
-    try {
-      await ManifestationService.saveEntry(
-        techniqueName: widget.techniqueName,
-        journalText:   widget.intention,
-      );
-      setState(() {
-        _saving     = false;
-        _saved      = true;
-        _statusText = 'Your intention has been set ✨';
-      });
-    } catch (_) {
-      setState(() {
-        _saving     = false;
-        _statusText = 'Saved locally — sync when online.';
-      });
-    }
+  bool didSave = false;
+  try {
+    await ManifestationService.saveEntry(
+      techniqueName: widget.techniqueName,
+      journalText:   widget.intention,
+    );
+    setState(() => _statusText = _savedText);
+    didSave = true;
+    ManifestationVisualization? visualization;
+try {
+  setState(() => _statusText = 'Painting your visualization…');
+  visualization = await ManifestationService.generateVisualization(
+    intentionText: widget.intention,
+    techniqueName: widget.techniqueName,
+  );
+} catch (err, stack) {
+  debugPrint('generateVisualization failed: ${err.runtimeType} — $err');
+  debugPrint('$stack');
+  // Non-fatal — continue without an image
+}
 
-    // 4. Seal stamp
-    _sealCtrl.forward();
-    await Future.delayed(const Duration(milliseconds: 900));
-
-    // 5. Brief pause then auto-return
-    await Future.delayed(const Duration(milliseconds: 1800));
-    if (mounted) Navigator.pop(context, true);
+setState(() => _statusText = _savedText);
+  } catch (err, stack) {
+    debugPrint('saveEntry failed: ${err.runtimeType} — $err');
+    debugPrint('$stack');
+    setState(() => _statusText = 'Could not save — please try again.');
+    await Future.delayed(const Duration(seconds: 2));
+    if (mounted) Navigator.pop(context, false);
+    return; // stop sequence on failure
   }
+
+  // 4. Seal stamp
+  _sealCtrl.forward();
+  await Future.delayed(const Duration(milliseconds: 900));
+
+  // 5. Brief pause then auto-return
+  await Future.delayed(const Duration(milliseconds: 1800));
+  if (mounted) Navigator.pop(context, didSave);
+}
 
   @override
   void dispose() {
@@ -242,9 +294,9 @@ class _ManifestationAnimationScreenState
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Text(
-                                  '✦  MY INTENTION  ✦',
-                                  style: TextStyle(
+                                Text(
+                                  _cardLabel,
+                                  style: const TextStyle(
                                     fontSize: 9,
                                     color: Color(0xFFE8C97A),
                                     letterSpacing: 2.5,
@@ -324,8 +376,8 @@ class _ManifestationAnimationScreenState
                           ),
                         ],
                       ),
-                      child: const Center(
-                        child: Text('🙏', style: TextStyle(fontSize: 28)),
+                      child: Center(
+                        child: Text(_sealEmoji, style: const TextStyle(fontSize: 28)),
                       ),
                     ),
                   ),

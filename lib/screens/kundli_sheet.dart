@@ -66,6 +66,51 @@ Color _rashiColor(String rashi) {
   return map[rashi] ?? kAccent;
 }
 
+// ── Western (tropical) zodiac — date-based, calendar lookup ──────────────────
+String _westernSunSign(String ddMmYyyy) {
+  final parts = ddMmYyyy.split('/');
+  if (parts.length != 3) return '';
+  final d = int.tryParse(parts[0]) ?? 0;
+  final m = int.tryParse(parts[1]) ?? 0;
+
+  const ranges = <List<int>>[
+    // [startMonth, startDay, endMonth, endDay] -> index into _signs
+    [1, 20, 2, 18],  // Aquarius
+    [2, 19, 3, 20],  // Pisces
+    [3, 21, 4, 19],  // Aries
+    [4, 20, 5, 20],  // Taurus
+    [5, 21, 6, 20],  // Gemini
+    [6, 21, 7, 22],  // Cancer
+    [7, 23, 8, 22],  // Leo
+    [8, 23, 9, 22],  // Virgo
+    [9, 23, 10, 22], // Libra
+    [10, 23, 11, 21],// Scorpio
+    [11, 22, 12, 21],// Sagittarius
+    [12, 22, 1, 19], // Capricorn
+  ];
+  const signs = [
+    'Aquarius', 'Pisces', 'Aries', 'Taurus', 'Gemini', 'Cancer',
+    'Leo', 'Virgo', 'Libra', 'Scorpio', 'Sagittarius', 'Capricorn',
+  ];
+
+  for (int i = 0; i < ranges.length; i++) {
+    final r = ranges[i];
+    final afterStart = (m == r[0] && d >= r[1]) || (m > r[0] && r[0] < r[2]);
+    final beforeEnd  = (m == r[2] && d <= r[3]) || (m < r[2] && r[0] < r[2]);
+    if (r[0] <= r[2]) {
+      if ((m == r[0] && d >= r[1]) || (m == r[2] && d <= r[3]) || (m > r[0] && m < r[2])) {
+        return signs[i];
+      }
+    } else {
+      // Capricorn wraps Dec→Jan
+      if ((m == r[0] && d >= r[1]) || (m == r[2] && d <= r[3])) {
+        return signs[i];
+      }
+    }
+  }
+  return '';
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ENTRY POINT
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -167,21 +212,129 @@ void initState() {
 
   // ── Date picker ────────────────────────────────────────────────
   Future<void> _pickDate() async {
-    final d = await showDatePicker(
-      context: context,
-      initialDate: _date ?? DateTime(1990, 1, 1),
-      firstDate: DateTime(1900),
-      lastDate: DateTime.now(),
-      builder: (ctx, child) => Theme(
-        data: Theme.of(ctx).copyWith(
-          colorScheme: ColorScheme.light(primary: kAccent),
-        ),
-        child: child!,
-      ),
-    );
-    if (d != null) setState(() => _date = d);
-  }
+  int selDay   = _date?.day   ?? 1;
+  int selMonth = _date?.month ?? 1;
+  int selYear  = _date?.year  ?? 1995;
 
+  const months = [
+    'Jan','Feb','Mar','Apr','May','Jun',
+    'Jul','Aug','Sep','Oct','Nov','Dec',
+  ];
+
+  await showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (_) => StatefulBuilder(
+      builder: (ctx, setSheetState) {
+        final daysInMonth = DateTime(selYear, selMonth + 1, 0).day;
+        if (selDay > daysInMonth) selDay = daysInMonth;
+
+        Widget wheel({
+          required int itemCount,
+          required int selected,
+          required String Function(int) label,
+          required ValueChanged<int> onChanged,
+        }) {
+          return Expanded(
+            child: ListWheelScrollView.useDelegate(
+              itemExtent: 40,
+              perspective: 0.003,
+              diameterRatio: 1.4,
+              physics: const FixedExtentScrollPhysics(),
+              controller: FixedExtentScrollController(initialItem: selected),
+              onSelectedItemChanged: onChanged,
+              childDelegate: ListWheelChildBuilderDelegate(
+                childCount: itemCount,
+                builder: (_, i) => Center(
+                  child: Text(label(i),
+                      style: const TextStyle(fontSize: 16, color: kText)),
+                ),
+              ),
+            ),
+          );
+        }
+
+        return Container(
+          decoration: const BoxDecoration(
+            color: kBg,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40, height: 4,
+                decoration: BoxDecoration(
+                  color: kBorder, borderRadius: BorderRadius.circular(100)),
+              ),
+              const SizedBox(height: 16),
+              const Text('Date of Birth',
+                  style: TextStyle(fontSize: 16, color: kText, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 180,
+                child: Stack(children: [
+                  Positioned.fill(
+                    child: Center(
+                      child: Container(
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: kAccent.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Row(children: [
+                    wheel(
+                      itemCount: daysInMonth,
+                      selected: selDay - 1,
+                      label: (i) => '${i + 1}',
+                      onChanged: (i) => setSheetState(() => selDay = i + 1),
+                    ),
+                    wheel(
+                      itemCount: 12,
+                      selected: selMonth - 1,
+                      label: (i) => months[i],
+                      onChanged: (i) => setSheetState(() => selMonth = i + 1),
+                    ),
+                    wheel(
+                      itemCount: DateTime.now().year - 1900 + 1,
+                      selected: selYear - 1900,
+                      label: (i) => '${1900 + i}',
+                      onChanged: (i) => setSheetState(() => selYear = 1900 + i),
+                    ),
+                  ]),
+                ]),
+              ),
+              const SizedBox(height: 20),
+              GestureDetector(
+                onTap: () {
+                  setState(() => _date = DateTime(selYear, selMonth, selDay));
+                  Navigator.of(ctx).pop();
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [kAccent, kRust]),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                  child: const Center(
+                    child: Text('Done',
+                        style: TextStyle(color: Colors.white, fontSize: 15,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
+}
   // ── Time picker ────────────────────────────────────────────────
   Future<void> _pickTime() async {
     final t = await showTimePicker(
@@ -604,7 +757,7 @@ String _planetAbbr(String name) {
         _sectionTitle('मुख्य बिंदु  ·  Key Points'),
         const SizedBox(height: 8),
         Row(children: [
-          Expanded(child: _trinityCard('लग्न', 'Ascendant', k.lagna)),
+          Expanded(child: _trinityCard('सूर्य', 'Sun Sign', _westernSunSign(k.date))),
           const SizedBox(width: 10),
           Expanded(child: _trinityCard('राशि', 'Moon Sign', k.rashi)),
           const SizedBox(width: 10),
@@ -807,7 +960,12 @@ String _planetAbbr(String name) {
             final i = entry.key;
             final p = entry.value;
             final icon = _planetIcons[p.name] ?? '●';
-            final color = _rashiColor(p.rashi);
+            // Use Western tropical sign for Sun, VedAstro sidereal for everything else
+  final displayRashi = p.name == 'Sun'
+      ? _westernSunSign(_kundli!.date)  // _kundli!.date is DD/MM/YYYY
+      : p.rashi;
+  final color = _rashiColor(displayRashi);
+            _rashiColor(p.rashi);
             return Container(
               color: i.isOdd ? kAlt : kSurface,
               child: Padding(
@@ -837,7 +995,7 @@ String _planetAbbr(String name) {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
-                      _rashiLabel(p.rashi),
+                      _rashiLabel(displayRashi),
                       style: TextStyle(fontSize: 11, color: color,
                           fontWeight: FontWeight.w600),
                       overflow: TextOverflow.ellipsis,

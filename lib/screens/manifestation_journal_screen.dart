@@ -32,55 +32,37 @@ class _ManifestationJournalScreenState
   }
 
   Future<void> _loadHistory() async {
-    final t = widget.state.currentTechnique;
-    if (t == null) return;
+  final t = widget.state.currentTechnique;
+  if (t == null) return;
+  try {
     final entries = await ManifestationService.fetchForTechnique(t.name);
     if (mounted) setState(() { _history = entries; _loadingHistory = false; });
+  } catch (e) {
+    debugPrint('_loadHistory error: $e');
+    if (mounted) setState(() { _loadingHistory = false; }); // ← spinner always clears
   }
+}
 
   Future<void> _save() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty) return;
-    final t = widget.state.currentTechnique;
-    if (t == null) return;
+  final text = _controller.text.trim();
+  if (text.isEmpty) return;
+  final t = widget.state.currentTechnique;
+  if (t == null) return;
 
-    // ── 21-Day Journaling: animated sacred reveal ─────────────────────────
-    if (t.name.contains('21')) {
-      _controller.clear();
-      final saved = await Navigator.push<bool>(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (_, __, ___) => ManifestationAnimationScreen(
-            intention:     text,
-            techniqueName: t.name,
-          ),
-          // Fade transition into the sacred screen
-          transitionsBuilder: (_, anim, __, child) =>
-              FadeTransition(opacity: anim, child: child),
-          transitionDuration: const Duration(milliseconds: 600),
-        ),
-      );
-      if (saved == true && mounted) {
-        setState(() => _saved = true);
-        await _loadHistory();
-        await Future.delayed(const Duration(seconds: 2));
-        if (mounted) setState(() => _saved = false);
-      }
-      return;
-    }
+  // ── Animated sacred reveal for journaling techniques ─────────────────
+  final bool useAnimation = t.name.contains('21') ||
+      t.name.contains('3-6-9') ||
+      t.name.contains('5×55') ||
+      t.name.contains('Scripting');
 
-    // ── All other techniques: save directly (original behaviour) ──────────
+  if (useAnimation) {
     setState(() => _saving = true);
     try {
+      // Save the entry FIRST so it actually persists.
       await ManifestationService.saveEntry(
         techniqueName: t.name,
         journalText:   text,
       );
-      _controller.clear();
-      setState(() { _saved = true; _saving = false; });
-      await _loadHistory();
-      await Future.delayed(const Duration(seconds: 2));
-      if (mounted) setState(() => _saved = false);
     } catch (e) {
       setState(() => _saving = false);
       if (mounted) {
@@ -88,8 +70,55 @@ class _ManifestationJournalScreenState
           const SnackBar(content: Text('Could not save. Try again.')),
         );
       }
+      return; // don't proceed to animation if save failed
+    }
+
+    setState(() => _saving = false);
+    _controller.clear();
+
+    await Navigator.push<bool>(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => ManifestationAnimationScreen(
+          intention:     text,
+          techniqueName: t.name,
+        ),
+        transitionsBuilder: (_, anim, __, child) =>
+            FadeTransition(opacity: anim, child: child),
+        transitionDuration: const Duration(milliseconds: 600),
+      ),
+    );
+
+    if (mounted) {
+      setState(() => _saved = true);
+      await _loadHistory();
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) setState(() => _saved = false);
+    }
+    return;
+  }
+
+  // ── All other techniques: save directly (original behaviour) ──────────
+  setState(() => _saving = true);
+  try {
+    await ManifestationService.saveEntry(
+      techniqueName: t.name,
+      journalText:   text,
+    );
+    _controller.clear();
+    setState(() { _saved = true; _saving = false; });
+    await _loadHistory();
+    await Future.delayed(const Duration(seconds: 2));
+    if (mounted) setState(() => _saved = false);
+  } catch (e) {
+    setState(() => _saving = false);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not save. Try again.')),
+      );
     }
   }
+}
 
   @override
   void dispose() {
@@ -188,10 +217,7 @@ class _ManifestationJournalScreenState
                             : Text(
                                 _saved
                                     ? '✓ Manifested'
-                                    // Special label for 21-day
-                                    : t.name.contains('21')
-                                        ? 'Manifest ✨'
-                                        : 'Save Entry',
+                                    : _manifestButtonLabel(t.name),
                                 style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 15,
@@ -280,5 +306,13 @@ class _ManifestationJournalScreenState
     if (name.contains('5×55')) return 'Write your affirmation 55 times. Start here...';
     if (name.contains('Script')) return 'Dear future me... today was incredible because...';
     return 'Describe your vision in vivid detail, as if it\'s already yours...';
+  }
+
+  String _manifestButtonLabel(String name) {
+    if (name.contains('21'))       return 'Manifest ✨';
+    if (name.contains('3-6-9'))    return 'Seal Intention 🔢';
+    if (name.contains('5×55'))     return 'Send to Universe ✍️';
+    if (name.contains('Scripting')) return 'Script My Future 🌟';
+    return 'Save Entry';
   }
 }
