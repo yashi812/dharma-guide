@@ -510,15 +510,21 @@ class ManifestationService {
 static Future<void> saveEntry({
   required String techniqueName,
   required String journalText,
+  String? imageUrl,
+  String? prompt,
 }) async {
   final uid = await _requireUid();
+  final data = {
+    'user_id': uid,
+    'technique_name': techniqueName,
+    'journal_text': journalText,
+    'journaled_on': DateTime.now().toIso8601String().substring(0, 10),
+  };
+  if (imageUrl != null) data['image_url'] = imageUrl;
+  if (prompt != null) data['prompt'] = prompt;
+
   await _db.from(_table).upsert(
-    {
-      'user_id': uid,
-      'technique_name': techniqueName,
-      'journal_text': journalText,
-      'journaled_on': DateTime.now().toIso8601String().substring(0, 10),
-    },
+    data,
     onConflict: 'user_id,technique_name,journaled_on',
   );
 }
@@ -539,9 +545,8 @@ static Future<void> saveEntry({
   if (user == null) return []; 
   final response = await _db
       .from(_table)
-      .select('journal_text, journaled_on')
+      .select('journal_text, journaled_on, image_url, prompt')
       .eq('user_id', user.id)
-       .eq('technique_name', techniqueName)
       .eq('technique_name', techniqueName)
       .order('journaled_on', ascending: false);
   return List<Map<String, dynamic>>.from(response);

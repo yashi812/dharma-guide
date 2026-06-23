@@ -71,6 +71,23 @@ class _ManifestationJournalScreenState
         techniqueName: t.name,
         journalText:   text,
       );
+
+      ManifestationVisualization? vis;
+      try {
+        vis = await ManifestationService.generateVisualization(
+          intentionText: text,
+          techniqueName: t.name,
+        );
+        // Save again to include the visualization details
+        await ManifestationService.saveEntry(
+          techniqueName: t.name,
+          journalText:   text,
+          imageUrl:      vis.imageUrl,
+          prompt:        vis.prompt,
+        );
+      } catch (e) {
+        debugPrint('Visualization error: $e');
+      }
     // Replace the catch block in the animation branch:
 } catch (e) {
   setState(() => _saving = false);
@@ -120,6 +137,23 @@ class _ManifestationJournalScreenState
       techniqueName: t.name,
       journalText:   text,
     );
+
+    try {
+      final vis = await ManifestationService.generateVisualization(
+        intentionText: text,
+        techniqueName: t.name,
+      );
+      // Save again to include the visualization details
+      await ManifestationService.saveEntry(
+        techniqueName: t.name,
+        journalText:   text,
+        imageUrl:      vis.imageUrl,
+        prompt:        vis.prompt,
+      );
+    } catch (e) {
+      debugPrint('Visualization error: $e');
+    }
+
     _controller.clear();
     setState(() { _saved = true; _saving = false; });
     await _loadHistory();
@@ -274,6 +308,7 @@ class _ManifestationJournalScreenState
                     ...(_history.map((entry) {
                       final date = entry['journaled_on'] as String;
                       final text = entry['journal_text'] as String;
+                      final imageUrl = entry['image_url'] as String?;
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: Container(
@@ -296,6 +331,28 @@ class _ManifestationJournalScreenState
                               Text(text,
                                   style: const TextStyle(
                                       fontSize: 13, color: kText, height: 1.6)),
+                              if (imageUrl != null) ...[
+                                const SizedBox(height: 12),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Image.network(
+                                    imageUrl,
+                                    width: double.infinity,
+                                    height: 200,
+                                    fit: BoxFit.cover,
+                                    loadingBuilder: (context, child, loadingProgress) {
+                                      if (loadingProgress == null) return child;
+                                      return Container(
+                                        height: 200,
+                                        color: kSurface,
+                                        child: const Center(child: CircularProgressIndicator(color: kAccent)),
+                                      );
+                                    },
+                                    errorBuilder: (context, error, stackTrace) =>
+                                        Container(height: 200, color: kSurface, child: const Center(child: Icon(Icons.broken_image, color: kDim))),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),

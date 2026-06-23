@@ -76,7 +76,7 @@ class _DharmaGuideAppState extends State<DharmaGuideApp> {
 
   if (session == null) {
   try {
-    await client.auth.signInWithOtp(email: 'anonymous@dharma_guide.app');
+    await client.auth.signInAnonymously();
     session = client.auth.currentSession;
   } catch (e) {
     debugPrint('Anonymous sign-in failed: $e');
