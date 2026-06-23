@@ -334,7 +334,11 @@ KundliInitialValues _extractBirthDetails() {
     }
 
     // 'new' chosen — wipe the old chart NOW before opening the form
-    setState(() => _kundliData = null);
+    setState(() {
+  _kundliData = null;
+  _chartConsentGiven = false;   // ← reset consent when chart is cleared
+});
+    await s.setKundliData('');  // ← clear stored chart in AppState
   }
 
   // ── Case 2: Show blank input form ─────────────────────────────────────────
@@ -722,11 +726,13 @@ KundliInitialValues _extractBirthDetails() {
     }
 
     final body = <String, dynamic>{
-      'userMessage': userMessage,
-      'history': history,
-      'topicLabel': _topic?.label,
-      if (kundliString != null && kundliString.isNotEmpty) 'kundliData': kundliString,
-    };
+  'userMessage': userMessage,
+  'history': history,
+  'topicLabel': _topic?.label,
+  'guidanceStyle': widget.state.userStyle,          // ← also add this if missing
+  if (kundliString != null && kundliString.isNotEmpty) 'kundliData': kundliString,
+  'chartConsent': _chartConsentGiven,               // ← THIS is the key fix
+};
 
     final response = await _db.functions.invoke(
       'dharmic-guidance',
@@ -874,7 +880,7 @@ KundliInitialValues _extractBirthDetails() {
                         const SizedBox(width: 5),
                         Text(
                           hasChart
-                              ? 'Kundli · ${_kundliData!.lagna}'
+                              ? 'Kundli · ${_kundliData!.rashi}'
                               : 'Show Kundli',
                           style: TextStyle(
                             fontSize: 11,
@@ -898,7 +904,7 @@ KundliInitialValues _extractBirthDetails() {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '${_kundliData!.rashi} · ${_kundliData!.nakshatra}',
+                      '${_kundliData!.lagna} · ${_kundliData!.nakshatra}',
                       style: const TextStyle(fontSize: 10, color: kDim),
                       overflow: TextOverflow.ellipsis,
                     ),
