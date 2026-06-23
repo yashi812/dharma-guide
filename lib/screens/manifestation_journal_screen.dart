@@ -39,7 +39,15 @@ class _ManifestationJournalScreenState
     if (mounted) setState(() { _history = entries; _loadingHistory = false; });
   } catch (e) {
     debugPrint('_loadHistory error: $e');
-    if (mounted) setState(() { _loadingHistory = false; }); // ← spinner always clears
+    if (mounted) {
+      setState(() { _loadingHistory = false; });
+      // Only surface errors that aren't auth-related — session may not be ready yet
+      if (!e.toString().contains('signed in')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load history: $e')),
+        );
+      }
+    }
   }
 }
 
@@ -63,15 +71,22 @@ class _ManifestationJournalScreenState
         techniqueName: t.name,
         journalText:   text,
       );
-    } catch (e) {
-      setState(() => _saving = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not save. Try again.')),
-        );
-      }
-      return; // don't proceed to animation if save failed
-    }
+    // Replace the catch block in the animation branch:
+} catch (e) {
+  setState(() => _saving = false);
+  if (mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          e.toString().contains('signed in')
+              ? 'Session expired — please sign in again.'
+              : 'Could not save. Try again.',
+        ),
+      ),
+    );
+  }
+  return;
+}
 
     setState(() => _saving = false);
     _controller.clear();

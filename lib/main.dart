@@ -58,38 +58,47 @@ class _DharmaGuideAppState extends State<DharmaGuideApp> {
   void _onStateChanged() => setState(() {});
 
   Future<void> _bootstrap() async {
-    // ── Ensure there is always an authenticated user ──────────
-    // If no session exists, sign in anonymously so every
-    // Supabase call has a valid auth.uid() and RLS passes.
-    var session = Supabase.instance.client.auth.currentSession;
-    if (session == null) {
-      try {
-        await Supabase.instance.client.auth.signInAnonymously();
-        session = Supabase.instance.client.auth.currentSession;
-      } catch (e) {
-        debugPrint('Anonymous sign-in failed: $e');
-      }
-    }
+  final client = Supabase.instance.client;
 
+  // Wait for Supabase to restore a persisted session from local storage.
+  // This emits quickly (usually <300ms). Without this wait, currentSession
+  // is always null on cold start and we incorrectly create a new anon user.
+  AuthState authState;
+  try {
+    authState = await client.auth.onAuthStateChange
+        .first
+        .timeout(const Duration(seconds: 5));
+  } catch (_) {
+    authState = AuthState(AuthChangeEvent.signedOut, null); // timeout — treat as no session
+  }
+
+  var session = authState.session ?? client.auth.currentSession;
+
+  if (session == null) {
+  try {
+    final res = await client.auth.signInWithOtp(email: 'anonymous@dharma_guide.app');
+    session = res.session;
+  } catch (e) {
+    debugPrint('Anonymous sign-in failed: $e');
+  }
+}
+
+  if (!mounted) return;
+
+  if (session != null) {
+    await _state.loadProfile();
     if (!mounted) return;
-
-    if (session != null) {
-      // Load profile — this tells us if onboarding was completed before
-      await _state.loadProfile();
-      if (!mounted) return;
-      if (_state.onboardingDone) {
-        _state.nav('home');
-      } else {
-        _state.nav('onboarding');
-      }
+    if (_state.onboardingDone) {
+      _state.nav('home');
     } else {
-      // No session even after anon sign-in (offline?) — show splash
-      // briefly then go to onboarding without Supabase calls
-      await Future.delayed(const Duration(milliseconds: 2300));
-      if (!mounted) return;
       _state.nav('onboarding');
     }
+  } else {
+    await Future.delayed(const Duration(milliseconds: 2300));
+    if (!mounted) return;
+    _state.nav('onboarding');
   }
+}
 
   @override
   void dispose() {

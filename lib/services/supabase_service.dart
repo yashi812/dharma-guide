@@ -28,6 +28,27 @@ SupabaseClient get _db => Supabase.instance.client;
 User? get currentUser => _db.auth.currentUser;
 String? get _uid => currentUser?.id;
 
+// Add this helper near the top of supabase_service.dart,
+// just below the `_uid` getter:
+
+/// Returns the current user id, waiting up to 3s for session restoration
+/// if the client hasn't hydrated yet (common on cold start).
+Future<String> _requireUid() async {
+  final immediate = _db.auth.currentUser?.id;
+  if (immediate != null) return immediate;
+
+  // Wait for the first auth state event that carries a user
+  final uid = await _db.auth.onAuthStateChange
+      .where((e) => e.session?.user.id != null)
+      .map((e) => e.session!.user.id)
+      .first
+      .timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => throw Exception('Not signed in.'),
+      );
+  return uid;
+}
+
 // ============================================================
 // AUTH
 // ============================================================
@@ -484,19 +505,22 @@ class SubscriptionService {
 class ManifestationService {
   static const _table = 'manifestation_journals';
 
-  static Future<void> saveEntry({
+  // In ManifestationService
+// In ManifestationService.saveEntry()
+static Future<void> saveEntry({
   required String techniqueName,
   required String journalText,
 }) async {
-  if (_uid == null) {
-    throw StateError('No authenticated user — cannot save manifestation entry.');
-  }
-  await _db.from(_table).insert({
-    'user_id': _uid,
-    'technique_name': techniqueName,
-    'journal_text': journalText,
-    'journaled_on': DateTime.now().toIso8601String().substring(0, 10),
-  });
+  final uid = await _requireUid();
+  await _db.from(_table).upsert(
+    {
+      'user_id': uid,
+      'technique_name': techniqueName,
+      'journal_text': journalText,
+      'journaled_on': DateTime.now().toIso8601String().substring(0, 10),
+    },
+    onConflict: 'user_id,technique_name,journaled_on',
+  );
 }
 
   static Future<List<Map<String, dynamic>>> fetchHistory({
@@ -510,19 +534,19 @@ class ManifestationService {
         .limit(limit);
   }
 
-  static Future<List<Map<String, dynamic>>> fetchForTechnique(
-    String techniqueName, {
-    int limit = 30,
-  }) async {
-    if (_uid == null) return [];
-    return await _db
-        .from(_table)
-        .select()
-        .eq('user_id', _uid!)
-        .eq('technique_name', techniqueName)
-        .order('journaled_on', ascending: false)
-        .limit(limit);
-  }
+  static Future<List<Map<String, dynamic>>> fetchForTechnique(String techniqueName) async {
+  final user = Supabase.instance.client.auth.currentUser;
+  if (user == null) return []; 
+  final response = await _db
+      .from(_table)
+      .select('journal_text, journaled_on')
+      .eq('user_id', user.id)
+       .eq('technique_name', techniqueName)
+      .eq('technique_name', techniqueName)
+      .order('journaled_on', ascending: false);
+  return List<Map<String, dynamic>>.from(response);
+}
+
   // lib/services/manifestation_service.dart (add this method)
 
   /// Calls the `generate-manifestation-visualization` edge function to

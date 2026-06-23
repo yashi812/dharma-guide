@@ -54,7 +54,7 @@ class _GuidanceScreenState extends State<GuidanceScreen>
 
   // ── Kundli state ────────────────────────────────────────────────────────────
   KundliData? _kundliData;
-
+  bool _chartConsentGiven = false;  // ← NEW, tracks if user has ever loaded a chart this session
   // Voice state
   late stt.SpeechToText _speech;
   bool _speechAvailable = false;
@@ -100,7 +100,7 @@ Future<void> _loadExistingKundli() async {
         if (mounted) setState(() => _kundliData = stored as KundliData?);
         return;
       }
-      if (stored is String && stored.trim().isNotEmpty) {
+      if (stored.trim().isNotEmpty) {
         final json = jsonDecode(stored) as Map<String, dynamic>;
         final kundli = KundliData.fromJson(json);
         if (mounted) setState(() => _kundliData = kundli);
@@ -454,7 +454,10 @@ KundliInitialValues _extractBirthDetails() {
  
   /// Stores the chart in local state + AppState and shows a confirmation.
   void _applyKundli(KundliData kundli) {
-    setState(() => _kundliData = kundli);
+  setState(() {
+    _kundliData = kundli;
+    _chartConsentGiven = true;  // ← ADD
+  });
  
     try {
       widget.state.setKundliData(jsonEncode(kundli.toJson()));
@@ -686,12 +689,15 @@ KundliInitialValues _extractBirthDetails() {
     if (label.contains('emotional') || label.contains('pain')) {
       return 'You have come here carrying something.$gitaLine\n\nWhat is weighing on you?';
     }
-    if (label.contains('purpose') || label.contains('lack'))
+    if (label.contains('purpose') || label.contains('lack')) {
       return 'The search for meaning is one of the most honest things a person can do.$gitaLine\n\nWhat is weighing on you?';
-    if (label.contains('relation') || label.contains('trouble'))
+    }
+    if (label.contains('relation') || label.contains('trouble')) {
       return 'Matters of the heart are never simple.$gitaLine\n\nWhat is weighing on you?';
-    if (label.contains('work') || label.contains('career'))
+    }
+    if (label.contains('work') || label.contains('career')) {
       return 'Something brought you here today.$gitaLine\n\nWhat is weighing on you?';
+    }
     return 'Whatever brought you here today — I am glad you came.$gitaLine\n\nWhat is weighing on you?';
   }
 

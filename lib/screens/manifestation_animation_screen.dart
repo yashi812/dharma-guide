@@ -144,39 +144,10 @@ class _ManifestationAnimationScreenState
   _textCtrl.forward();
   await Future.delayed(const Duration(milliseconds: 1600));
 
-  // 3. Save in background
+  // 3. Show sealing status (no save here — caller already saved)
   setState(() => _statusText = _sealingText);
-
-  bool didSave = false;
-  try {
-    await ManifestationService.saveEntry(
-      techniqueName: widget.techniqueName,
-      journalText:   widget.intention,
-    );
-    setState(() => _statusText = _savedText);
-    didSave = true;
-    ManifestationVisualization? visualization;
-try {
-  setState(() => _statusText = 'Painting your visualization…');
-  visualization = await ManifestationService.generateVisualization(
-    intentionText: widget.intention,
-    techniqueName: widget.techniqueName,
-  );
-} catch (err, stack) {
-  debugPrint('generateVisualization failed: ${err.runtimeType} — $err');
-  debugPrint('$stack');
-  // Non-fatal — continue without an image
-}
-
-setState(() => _statusText = _savedText);
-  } catch (err, stack) {
-    debugPrint('saveEntry failed: ${err.runtimeType} — $err');
-    debugPrint('$stack');
-    setState(() => _statusText = 'Could not save — please try again.');
-    await Future.delayed(const Duration(seconds: 2));
-    if (mounted) Navigator.pop(context, false);
-    return; // stop sequence on failure
-  }
+  await Future.delayed(const Duration(milliseconds: 800));
+  setState(() => _statusText = _savedText);
 
   // 4. Seal stamp
   _sealCtrl.forward();
@@ -184,17 +155,8 @@ setState(() => _statusText = _savedText);
 
   // 5. Brief pause then auto-return
   await Future.delayed(const Duration(milliseconds: 1800));
-  if (mounted) Navigator.pop(context, didSave);
+  if (mounted) Navigator.pop(context, true);
 }
-
-  @override
-  void dispose() {
-    _bgCtrl.dispose();
-    _textCtrl.dispose();
-    _orbitCtrl.dispose();
-    _sealCtrl.dispose();
-    super.dispose();
-  }
 
   // ── Build ─────────────────────────────────────────────────────
   @override

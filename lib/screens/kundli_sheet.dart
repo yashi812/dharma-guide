@@ -342,7 +342,7 @@ void initState() {
       initialTime: _time ?? const TimeOfDay(hour: 12, minute: 0),
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-          colorScheme: ColorScheme.light(primary: kAccent),
+          colorScheme: const ColorScheme.light(primary: kAccent),
         ),
         child: child!,
       ),
@@ -397,7 +397,9 @@ Widget _northIndianChart(KundliData k) {
 
   // Build house→planets map
   final housePlanets = <int, List<String>>{};
-  for (int i = 1; i <= 12; i++) housePlanets[i] = [];
+  for (int i = 1; i <= 12; i++) {
+    housePlanets[i] = [];
+  }
   for (final p in k.planets) {
     if (p.house >= 1 && p.house <= 12) {
       final abbr = _planetAbbr(p.name);
@@ -415,7 +417,7 @@ Widget _northIndianChart(KundliData k) {
     // top row L-R: 12,1,2 | middle: 11,_,3 | middle: 10,_,4 | bottom: 9,8,7,6,5
     // Actually North Indian fixed positions:
     const rashiPos = [0,1,2,3,4,5,6,7,8,9,10,11]; // Aries=0 at pos index
-    final rashiAtPos = (pos) => rashiPos[pos];
+    int rashiAtPos(pos) => rashiPos[pos];
     final house = ((rashiAtPos(pos) - lagnaIndex) % 12 + 12) % 12 + 1;
     return house;
   }
@@ -911,7 +913,7 @@ String _planetAbbr(String name) {
         // Hindi name (large) on first line if available
         if (hindi != null) ...[
           Text('$symbol $hindi',
-              style: TextStyle(
+              style: const TextStyle(
                   fontSize: 15, color: kText,
                   fontWeight: FontWeight.w700, height: 1.2)),
           Text(firstLine,
@@ -920,7 +922,7 @@ String _planetAbbr(String name) {
                   height: 1.3)),
         ] else ...[
           Text('$symbol $firstLine',
-              style: TextStyle(
+              style: const TextStyle(
                   fontSize: 13, color: kText,
                   fontWeight: FontWeight.w600, height: 1.3)),
           if (restLines != null)
@@ -942,9 +944,9 @@ String _planetAbbr(String name) {
       child: Column(
         children: [
           // Header
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(children: const [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(children: [
               Expanded(flex: 3, child: Text('ग्रह / Planet',
                   style: TextStyle(fontSize: 11, color: kDim, fontWeight: FontWeight.w600))),
               Expanded(flex: 3, child: Text('राशि / Rashi',
@@ -1030,9 +1032,9 @@ String _planetAbbr(String name) {
       ),
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(children: const [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(children: [
               Expanded(flex: 2, child: Text('भाव',
                   style: TextStyle(fontSize: 11, color: kDim, fontWeight: FontWeight.w600))),
               Expanded(flex: 3, child: Text('राशि',

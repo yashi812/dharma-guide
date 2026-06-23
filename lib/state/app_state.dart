@@ -91,7 +91,7 @@ class AppState extends ChangeNotifier {
 
       // ── Keep this line commented out during dev, restore for release ──
       // _onboardingDone = profile['onboarding_done'] as bool? ?? false;
-      _onboardingDone = kDebugMode ? false : (profile['onboarding_done'] as bool? ?? false);
+      _onboardingDone = profile['onboarding_done'] as bool? ?? false;
     }
 
       final stats = await ProfileService.fetchStats();
